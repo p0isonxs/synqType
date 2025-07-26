@@ -24,6 +24,6 @@ export const config = getDefaultConfig({
   appName: 'Typing Game',
   projectId: '5427ea0f42e9a3a272a1a406c2f63c48',
   chains: [monadTestnet],
-  appIcon: '/avatars/avatar2.png',
+  appIcon: 'https://synqtype.vercel.app/logo.png',
   ssr: false,
 })
