@@ -459,7 +459,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
       shareText += `Prize pool was ${roomData.totalPot} ${networkInfo.currency}!\n\n`;
     }
 
-    shareText += `Challenge me at: https://synq-type.vercel.app/`;
+    shareText += `Challenge me at: https://synqtype.vercel.app/`;
 
     return shareText;
   };
@@ -469,7 +469,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
   const handleShare = (platform: string) => {
     const shareText = generateShareText();
     const encodedText = encodeURIComponent(shareText);
-    const gameUrl = encodeURIComponent('https://synq-type.vercel.app/');
+    const gameUrl = encodeURIComponent('https://synqtype.vercel.app/');
 
     const shareUrls = {
       twitter: `https://twitter.com/intent/tweet?text=${encodedText}`,
