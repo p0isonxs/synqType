@@ -30,9 +30,7 @@ export default function OptimizedBetConfirmationModal({
 
     try {
       setIsConfirming(true);
-      toast.success('Joining betting pool...');
       await joinRoom(betAmount);
-      toast.success('Successfully joined betting pool!');
       onConfirmed();
     } catch (error: any) {
       console.error('Bet confirmation error:', error);

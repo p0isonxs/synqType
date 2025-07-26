@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   useReactModelRoot,
   useSession,
@@ -42,9 +42,21 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
   const { address, isConnected } = useWeb3();
 
   const networkInfo = getNetworkInfo();
-  // ✅ Get betting info from room model
   const roomModel = model as any;
   const bettingEnabled = roomModel?.enableBetting;
+
+  // ✅ ANTI-SPAM: Action throttling system
+  const lastActionRef = useRef<Record<string, number>>({});
+  const actionThrottle = useCallback((actionKey: string, minInterval = 2000) => {
+    const now = Date.now();
+    const lastAction = lastActionRef.current[actionKey] || 0;
+    if (now - lastAction < minInterval) {
+      console.log(`THROTTLED: Skipping ${actionKey} (too frequent)`);
+      return false;
+    }
+    lastActionRef.current[actionKey] = now;
+    return true;
+  }, []);
 
   // ✅ OPTIMIZED: Use optimized contract hook
   const {
@@ -62,10 +74,12 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     bettingEnabled && isConnected
   );
 
-  // Winner and reward states
-  const [gameWinner, setGameWinner] = useState<string | null>(null);
-  const [gameEndProcessed, setGameEndProcessed] = useState(false);
-  const [isEndingGame, setIsEndingGame] = useState(false);
+  // ✅ ANTI-LOOP: Single source of truth for game state
+  const [gameEndState, setGameEndState] = useState({
+    processed: false,
+    winner: null as string | null,
+    isEnding: false,
+  });
 
   const [gameState, setGameState] = useState("waiting");
   const [isHost, setIsHost] = useState(false);
@@ -74,8 +88,8 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
   const lastPlayersRef = useRef<string>("");
   const initsSentRef = useRef(false);
 
-  // Unique toast function
-  const showUniqueToast = (message: string, type: 'success' | 'error' | 'info' = 'info', id?: string) => {
+  // ✅ THROTTLED: Unique toast function
+  const showUniqueToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info', id?: string) => {
     const toastId = id || message.slice(0, 20);
     if (type === 'success') {
       toast.success(message, { id: toastId });
@@ -84,28 +98,37 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     } else {
       toast(message, { id: toastId });
     }
-  };
+  }, []);
 
-  // Publish functions
+  // ✅ THROTTLED: Publish functions with rate limiting
   const sendInitials = usePublish<string>((initials) => [
     viewId!,
     "set-initials",
     initials,
   ]);
   const sendAvatar = usePublish<string>((url) => [viewId!, "set-avatar", url]);
-  const sendTypedWord = usePublish<boolean>((correct) => [
+  
+  // ✅ ANTI-SPAM: Throttled typed word
+  const sendTypedWordThrottled = usePublish<boolean>((correct) => [
     viewId!,
     "typed-word",
     correct,
   ]);
+  
+  const sendTypedWord = useCallback((correct: boolean) => {
+    if (actionThrottle('typed-word', 100)) { // Max 10 words per second
+      sendTypedWordThrottled(correct);
+    }
+  }, [sendTypedWordThrottled, actionThrottle]);
+
   const startGame = usePublish(() => ["game", "start"]);
   const resetGame = usePublish(() => ["game", "reset"]);
 
+  // ✅ MEMOIZED: Winner determination
   const determineWinner = useCallback(() => {
     if (!model || !model.players) return null;
 
     const players = Array.from(model.players.entries());
-
     const sortedPlayers = players.sort((a, b) => {
       const aCompleted = a[1].progress >= 100 ? 1 : 0;
       const bCompleted = b[1].progress >= 100 ? 1 : 0;
@@ -117,31 +140,49 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
       return null;
     }
 
-    // Check for draw
     const topScore = sortedPlayers[0][1].score;
     const drawPlayers = sortedPlayers.filter(p => p[1].score === topScore);
 
     if (drawPlayers.length > 1) {
-      console.log("🤝 Draw detected between:", drawPlayers.map(p => p[0]));
+      console.log(" Draw detected between:", drawPlayers.map(p => p[0]));
       return "DRAW";
     }
 
-    return sortedPlayers[0][0]; // return viewId of winner
+    return sortedPlayers[0][0];
   }, [model?.players]);
 
+  // ✅ THROTTLED: Wallet address sending
+  const sendWalletAddressThrottled = usePublish<`0x${string}`>((wallet) => [
+    viewId!,
+    "set-wallet",
+    wallet,
+  ]);
 
-
+  const sendWalletAddress = useCallback((wallet: `0x${string}`) => {
+    if (actionThrottle('send-wallet', 5000)) { // Max once per 5 seconds
+      sendWalletAddressThrottled(wallet);
+    }
+  }, [sendWalletAddressThrottled, actionThrottle]);
 
   useEffect(() => {
-    const handleAutoDeclareResults = async () => {
-      if (!model || !roomData || !bettingEnabled) return;
-      if (model.timeLeft !== 0 || roomData.gameEnded || gameEndProcessed) return;
+    if (address && model && viewId && !gameEndState.processed) {
+      sendWalletAddress(address);
+    }
+  }, [address, model, viewId, sendWalletAddress, gameEndState.processed]);
 
-      const hasAnyCompleted = Array.from(model.players.values()).some(p => p.progress >= 100);
+  // ✅ HIGHLY OPTIMIZED: Auto declare results with comprehensive checks
+  useEffect(() => {
+    const handleAutoDeclareResults = async () => {
+      // ✅ EARLY EXIT: Multiple condition checks
+      if (!model || !roomData || !bettingEnabled) return;
+      if (model.timeLeft !== 0 || roomData.gameEnded || gameEndState.processed) return;
+      if (!actionThrottle('auto-declare-results', 10000)) return; // Max once per 10 seconds
+
+      const playersArray = Array.from(model.players.values());
+      const hasAnyCompleted = playersArray.some(p => p.progress >= 100);
       if (hasAnyCompleted) return;
 
-      // ✅ Disinilah kamu taruh kode ini
-      const players = Array.from(model.players.values()).map(player => ({
+      const players = playersArray.map(player => ({
         walletAddress: player.walletAddress,
         score: player.score,
       }));
@@ -155,22 +196,19 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
 
       const playerAddresses = players.map(p => p.walletAddress as Address);
       const playerScores = players.map(p => p.score);
+      const playerScoresBigInt = playerScores.map(score => BigInt(score));
+      const maxScore = Math.max(...playerScores);
+      const topScorers = players.filter(p => p.score === maxScore);
+
+      if (topScorers.length > 1) {
+        console.log("Multiple top scorers, game is draw. Skipping declareGameResult.");
+        showUniqueToast("It's a draw! No reward will be distributed.", 'info');
+        return;
+      }
 
       try {
-        // Convert playerScores (number[]) to bigint[] to match declareGameResult signature
-        const playerScoresBigInt = playerScores.map(score => BigInt(score));
-        const maxScore = Math.max(...playerScores);
-        const topScorers = players.filter(p => p.score === maxScore);
-
-        if (topScorers.length > 1) {
-          console.log("Multiple top scorers, game is draw. Skipping declareGameResult.");
-          showUniqueToast("It's a draw! No reward will be distributed.", 'info');
-          return;
-        }
-
         await declareGameResult(playerAddresses, playerScoresBigInt);
-        setGameEndProcessed(true);
-        showUniqueToast('Game result declared successfully!', 'success');
+        setGameEndState(prev => ({ ...prev, processed: true }));
       } catch (error) {
         console.error('Error declaring game result:', error);
         showUniqueToast('Failed to declare game result', 'error');
@@ -182,89 +220,74 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     model?.timeLeft,
     roomData?.gameEnded,
     bettingEnabled,
-    gameEndProcessed,
+    gameEndState.processed,
     declareGameResult,
-    model?.players
+    model?.players,
+    actionThrottle,
+    showUniqueToast
   ]);
 
-
-  const sendWalletAddress = usePublish<`0x${string}`>((wallet) => [
-    viewId!,
-    "set-wallet",
-    wallet,
-  ]);
-
-
-  useEffect(() => {
-    if (address && model && viewId) {
-      sendWalletAddress(address);
-    }
-  }, [address, model, viewId, sendWalletAddress]);
-
-
-  // ✅ OPTIMIZED: Handle game end with automatic payout
+  // ✅ OPTIMIZED: Game end handling with single state management
   useEffect(() => {
     const handleGameEnd = async () => {
-      if (gameEndProcessed || !model || !bettingEnabled || !roomData) return;
-      if (roomData.gameEnded || isEndingGame) return;
+      if (gameEndState.processed || !model || !bettingEnabled || !roomData) return;
+      if (roomData.gameEnded || gameEndState.isEnding) return;
+      if (!actionThrottle('handle-game-end', 5000)) return; // Max once per 5 seconds
 
       const hasFinishedPlayer = Array.from(model.players.values()).some(p => p.progress >= 100);
       const timeIsUp = model.timeLeft === 0;
       const gameEnded = hasFinishedPlayer || timeIsUp;
 
-
-
-      if (gameEnded && !gameEndProcessed) {
+      if (gameEnded && !gameEndState.processed) {
         const winner = determineWinner();
 
         if (winner === "DRAW") {
-          setGameEndProcessed(true);
+          setGameEndState({ processed: true, winner: null, isEnding: false });
           showUniqueToast("Game ended in a draw. No payout will be made.", "info", "draw-toast");
           return;
         }
 
         if (winner) {
-          setGameWinner(winner);
-          setGameEndProcessed(true);
+          setGameEndState(prev => ({ ...prev, winner, processed: true }));
 
           const isThisPlayerWinner = winner === viewId;
 
           if (isThisPlayerWinner && address && canDeclareFinished) {
-            setIsEndingGame(true);
+            setGameEndState(prev => ({ ...prev, isEnding: true }));
             try {
-              showUniqueToast(" You won! Declaring victory and claiming reward...", 'success', 'winner-declaring');
+              showUniqueToast("You won! Declaring victory and claiming reward...", 'success', 'winner-declaring');
               await declareFinished();
               showUniqueToast("Victory declared! Your reward has been automatically transferred!", 'success', 'auto-paid');
             } catch (error) {
               showUniqueToast("Failed to declare victory. Try manual claim.", 'error', 'error-declare');
             } finally {
-              setIsEndingGame(false);
+              setGameEndState(prev => ({ ...prev, isEnding: false }));
             }
           } else if (winner !== viewId) {
-            console.log(`PTIMIZED: Game ended, ${winner.slice(0, 8)} won and got paid automatically`);
+            console.log(`Game ended, ${winner.slice(0, 8)} won and got paid automatically`);
             showUniqueToast("Game ended! Winner received the prize automatically.", 'info', 'game-end');
           }
         }
 
-        // ✅ OPTIMIZED: Handle time-up scenarios
+        // ✅ THROTTLED: Handle time-up scenarios
         if (timeIsUp && !winner && model.players.size >= 2) {
-          try {
-            await handleTimeUp();
-            showUniqueToast("Time's up! Finding fastest player...", 'info', 'time-up');
-          } catch (error) {
-            console.error("OPTIMIZED: Failed to handle time up:", error);
+          if (actionThrottle('handle-timeup', 15000)) { // Max once per 15 seconds
+            try {
+              await handleTimeUp();
+              showUniqueToast("Time's up! Finding fastest player...", 'info', 'time-up');
+            } catch (error) {
+              console.error("OPTIMIZED: Failed to handle time up:", error);
+            }
           }
         }
       }
-
-
     };
 
     handleGameEnd();
   }, [
     model?.timeLeft,
     model?.players?.size,
-    gameEndProcessed,
+    gameEndState,
     bettingEnabled,
     roomData?.gameEnded,
     viewId,
@@ -273,15 +296,15 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     determineWinner,
     declareFinished,
     handleTimeUp,
-    isEndingGame,
-    actualRoomCode,
-    showEndGameModal
+    actionThrottle,
+    showUniqueToast
   ]);
 
   // ✅ OPTIMIZED: Auto declare when player finishes first
   useEffect(() => {
     const handleAutoFinish = async () => {
       if (!model || !viewId || !bettingEnabled) return;
+      if (!actionThrottle('auto-finish', 8000)) return; // Max once per 8 seconds
 
       const currentPlayer = model.players.get(viewId);
       if (!currentPlayer || currentPlayer.progress < 100) return;
@@ -290,38 +313,33 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
       const allPlayers = Array.from(model.players.values());
       const finishedPlayers = allPlayers.filter(p => p.progress >= 100);
 
-      if (finishedPlayers.length === 1 && canDeclareFinished && !gameEndProcessed) {
-        console.log('🏁 OPTIMIZED: First player finished - auto declaring with payout!');
-        setGameEndProcessed(true);
+      if (finishedPlayers.length === 1 && canDeclareFinished && !gameEndState.processed) {
+        setGameEndState(prev => ({ ...prev, processed: true }));
 
         try {
           await declareFinished();
-          showUniqueToast("🎯 Victory declared and reward claimed automatically!", 'success', 'auto-declare');
+          showUniqueToast("Victory declared and reward claimed automatically!", 'success', 'auto-declare');
         } catch (error) {
-          console.error("OPTIMIZED: Auto declare failed:", error);
+          console.error("Auto declare failed:", error);
         }
       }
     };
 
     handleAutoFinish();
-  }, [model?.players, viewId, canDeclareFinished, gameEndProcessed, bettingEnabled, declareFinished]);
+  }, [model?.players, viewId, canDeclareFinished, gameEndState.processed, bettingEnabled, declareFinished, actionThrottle, showUniqueToast]);
 
   // ✅ OPTIMIZED: Winner reward panel
-
   const WinnerRewardPanel = React.memo(() => {
     if (!bettingEnabled || !roomData) return null;
 
     const typingGameOver = model?.timeLeft === 0 || Array.from(model?.players?.values() || []).some(p => p.progress >= 100);
-    const shouldShow = roomData.gameEnded || (typingGameOver && gameWinner);
+    const shouldShow = roomData.gameEnded || (typingGameOver && gameEndState.winner);
 
     if (!shouldShow) return null;
 
     const isRoomWinner = roomData.winner && address &&
       roomData.winner.toLowerCase() === address.toLowerCase();
-    const isTypingWinner = gameWinner === viewId;
-    const isWinner = isRoomWinner || isTypingWinner;
-
-  
+    const isTypingWinner = gameEndState.winner === viewId;
 
     // Show winner info for others
     if (roomData.winner) {
@@ -351,22 +369,25 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     );
   });
 
-  // Simplified Leaderboard
+  // ✅ MEMOIZED: Simplified Leaderboard
   const SimpleLeaderboard = React.memo(() => {
-
     if (!model) return null;
 
-    const sortedPlayers = [...model.players.entries()]
-      .sort((a, b) => {
-        const aCompleted = a[1].progress >= 100 ? 1 : 0;
-        const bCompleted = b[1].progress >= 100 ? 1 : 0;
+    const sortedPlayers = useMemo(() => {
+      return [...model.players.entries()]
+        .sort((a, b) => {
+          const aCompleted = a[1].progress >= 100 ? 1 : 0;
+          const bCompleted = b[1].progress >= 100 ? 1 : 0;
 
-        if (aCompleted !== bCompleted) {
-          return bCompleted - aCompleted;
-        }
+          if (aCompleted !== bCompleted) {
+            return bCompleted - aCompleted;
+          }
 
-        return b[1].score - a[1].score;
-      });
+          return b[1].score - a[1].score;
+        });
+    }, [model.players]);
+
+    const showGameOver = model.timeLeft === 0 || Array.from(model.players.values()).some(p => p.progress >= 100);
 
     return (
       <div className="max-w-md mx-auto mb-8">
@@ -433,7 +454,8 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     );
   });
 
-  const generateShareText = () => {
+  // ✅ MEMOIZED: Share text generation
+  const generateShareText = useCallback(() => {
     if (!model) return '';
 
     const sortedPlayers = [...model.players.entries()]
@@ -462,11 +484,9 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     shareText += `Challenge me at: https://synqtype.vercel.app/`;
 
     return shareText;
-  };
+  }, [model, viewId, actualRoomCode, bettingEnabled, roomData?.totalPot, networkInfo.currency]);
 
-
-
-  const handleShare = (platform: string) => {
+  const handleShare = useCallback((platform: string) => {
     const shareText = generateShareText();
     const encodedText = encodeURIComponent(shareText);
     const gameUrl = encodeURIComponent('https://synqtype.vercel.app/');
@@ -481,9 +501,9 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
 
     window.open(shareUrls[platform as keyof typeof shareUrls], '_blank', 'width=600,height=500,scrollbars=yes');
     setShowShareModal(false);
-  };
+  }, [generateShareText]);
 
-  const ShareModal = () => {
+  const ShareModal = React.memo(() => {
     if (!showShareModal) return null;
 
     return (
@@ -565,12 +585,13 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
         </div>
       </div>
     );
-  };
-  const EndGameModal = () => {
+  });
+
+  const EndGameModal = React.memo(() => {
     if (!showEndGameModal) return null;
   
     const myPlayer = model?.players.get(viewId!);
-    const isWinner = gameWinner === viewId;
+    const isWinner = gameEndState.winner === viewId;
     const myRank = model ? [...model.players.entries()]
       .sort((a, b) => {
         const aCompleted = a[1].progress >= 100 ? 1 : 0;
@@ -590,7 +611,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
       }
     };
   
-    const handleShare = () => {
+    const handleShareFromModal = () => {
       setShowEndGameModal(false);
       setShowShareModal(true);
     };
@@ -615,7 +636,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
                     </p>
                   )}
                 </>
-              ) : gameWinner === "DRAW" ? (
+              ) : gameEndState.winner === "DRAW" ? (
                 <>
                   <h2 className="text-2xl font-bold text-blue-400 mb-2 font-staatliches">
                     IT'S A DRAW!
@@ -663,7 +684,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
             {/* Buttons */}
             <div className="flex flex-col gap-3">
               <button
-                onClick={handleShare}
+                onClick={handleShareFromModal}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 transform hover:scale-105 font-staatliches"
               >
                  Share Results
@@ -680,8 +701,9 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
         </div>
       </div>
     );
-  };
-  // Keep all existing useEffects and game logic...
+  });
+
+  // ✅ THROTTLED: Focus management
   useEffect(() => {
     if (model?.countdownActive && model?.countdown === 0) {
       setTimeout(() => {
@@ -690,6 +712,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     }
   }, [model?.countdownActive, model?.countdown]);
 
+  // ✅ OPTIMIZED: Initial setup with throttling
   useEffect(() => {
     if (model && viewId && !initsSentRef.current) {
       const userExists = model.players.has(viewId);
@@ -699,10 +722,12 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
         return;
       }
 
-      setUserId(userData.initials);
-      sendInitials(userData.initials);
-      sendAvatar(userData.avatarUrl);
-      initsSentRef.current = true;
+      if (actionThrottle('init-setup', 3000)) {
+        setUserId(userData.initials);
+        sendInitials(userData.initials);
+        sendAvatar(userData.avatarUrl);
+        initsSentRef.current = true;
+      }
     }
   }, [
     model,
@@ -712,8 +737,10 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     sendAvatar,
     userData.initials,
     userData.avatarUrl,
+    actionThrottle
   ]);
 
+  // ✅ THROTTLED: Game state updates
   useEffect(() => {
     if (!model || !viewId) return;
 
@@ -739,17 +766,19 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     viewId,
   ]);
 
-  const handleExit = () => {
+  const handleExit = useCallback(() => {
     if (!model?.started) {
       navigate(`/room/${actualRoomCode}/lobby`);
     } else {
       leaveSession();
       navigate("/multiplayer");
     }
-  };
+  }, [model?.started, navigate, actualRoomCode, leaveSession]);
 
+  // ✅ THROTTLED: Player updates
   const updatePlayers = useCallback(() => {
     if (!model) return;
+    if (!actionThrottle('update-players', 500)) return; // Max 2 updates per second
 
     const entries = Array.from(model.players.entries());
     const playersKey = entries
@@ -764,7 +793,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
         setIsHost(viewId === firstViewId);
       }
     }
-  }, [model]);
+  }, [model, actionThrottle, viewId]);
 
   useSubscribe("view", "update", updatePlayers);
 
@@ -779,23 +808,22 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     [viewId, userData.avatarUrl]
   );
 
-  const getTruncatedName = (name: string) => {
+  const getTruncatedName = useCallback((name: string) => {
     return name.length > 8 ? name.substring(0, 8) + "..." : name;
-  };
+  }, []);
 
-  const handlePlayAgain = () => {
+  const handlePlayAgain = useCallback(() => {
     if (!isHost) return;
+    if (!actionThrottle('play-again', 5000)) return;
 
     // Reset all states
-    setGameWinner(null);
-    setIsEndingGame(false);
-    setGameEndProcessed(false);
+    setGameEndState({ processed: false, winner: null, isEnding: false });
 
     resetGame();
     setTimeout(() => {
       startGame();
     }, 100);
-  };
+  }, [isHost, resetGame, startGame, actionThrottle]);
 
   // Keep all existing game rendering logic...
   const player = model?.players.get(viewId!);
@@ -820,8 +848,10 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     }
   }, [model.started, isCompleted, gameState]);
 
-  const handleSubmit = () => {
+  // ✅ THROTTLED: Submit handler
+  const handleSubmit = useCallback(() => {
     if (!inputValue.trim() || isCompleted || gameState !== "playing") return;
+    if (!actionThrottle('submit-word', 50)) return; // Max 20 words per second
 
     const correct = inputValue.trim() === word;
 
@@ -841,17 +871,20 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
 
     sendTypedWord(correct);
     setInputValue("");
-  };
+  }, [inputValue, isCompleted, gameState, word, sendTypedWord, actionThrottle]);
 
-  const getTimeColor = () => {
+  const getTimeColor = useCallback(() => {
+    if (!model) return "text-white";
     if (model.timeLeft > model.timeLimit * 0.5) return "text-white";
     if (model.timeLeft > model.timeLimit * 0.25) return "text-yellow-400";
     return "text-red-400";
-  };
+  }, [model]);
 
   const WORDS_PER_CHUNK = 20;
 
-  const getCurrentChunk = () => {
+  const getCurrentChunk = useCallback(() => {
+    if (!model) return { words: [], startIndex: 0, chunkIndex: 0 };
+    
     const chunkIndex = Math.floor(currentIndex / WORDS_PER_CHUNK);
     const startIndex = chunkIndex * WORDS_PER_CHUNK;
     const endIndex = Math.min(startIndex + WORDS_PER_CHUNK, model.words.length);
@@ -861,11 +894,9 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
       startIndex: startIndex,
       chunkIndex: chunkIndex,
     };
-  };
+  }, [model, currentIndex]);
 
-  const renderChunkedText = () => {
-
-
+  const renderChunkedText = useCallback(() => {
     const chunk = getCurrentChunk();
     const relativeIndex = currentIndex - chunk.startIndex;
 
@@ -918,28 +949,29 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
         </div>
 
         <div className="mt-2 text-center text-xs text-gray-500">
-          Word {currentIndex + 1} of {model.words.length} | Chunk{" "}
+          Word {currentIndex + 1} of {model?.words.length || 0} | Chunk{" "}
           {Math.floor(currentIndex / WORDS_PER_CHUNK) + 1} of{" "}
-          {Math.ceil(model.words.length / WORDS_PER_CHUNK)}
+          {Math.ceil((model?.words.length || 0) / WORDS_PER_CHUNK)}
           {bettingEnabled && roomData && (
             <span className="text-yellow-300 ml-2">
               Prize: {roomData.totalPot} {networkInfo.currency}
             </span>
           )}
-
         </div>
       </div>
     );
-  };
+  }, [getCurrentChunk, currentIndex, inputValue, model?.words.length, bettingEnabled, roomData, networkInfo.currency]);
 
-  const getIndexProgress = (p: typeof player) => {
-    if (!model.words.length) return 0;
+  const getIndexProgress = useCallback((p: typeof player) => {
+    if (!model?.words.length) return 0;
     return Math.min((p.index / model.words.length) * 100, 100);
-  };
+  }, [model?.words.length]);
 
   const showGameOver = model.timeLeft === 0 || isCompleted;
 
-  const getTrackLanes = () => {
+  const getTrackLanes = useCallback(() => {
+    if (!model) return [];
+    
     const players = [...model.players.entries()];
     const laneHeight = 50;
 
@@ -949,9 +981,9 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
       yPosition: index * laneHeight,
       isCurrentPlayer: id === viewId,
     }));
-  };
+  }, [model, viewId]);
 
-  const CountdownOverlay = () => {
+  const CountdownOverlay = React.memo(() => {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 backdrop-blur-sm">
         <div className="text-center">
@@ -961,10 +993,10 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
             className="h-24 w-auto mx-auto mb-8"
           />
           <div className="text-8xl font-bold text-white mb-4 animate-pulse font-staatliches">
-            {model.countdown > 0 ? model.countdown : "GO!"}
+            {model?.countdown && model.countdown > 0 ? model.countdown : "GO!"}
           </div>
           <div className="text-xl text-gray-300">
-            {model.countdown > 0 ? "Get Ready..." : "Start Typing!"}
+            {model?.countdown && model.countdown > 0 ? "Get Ready..." : "Start Typing!"}
           </div>
           {bettingEnabled && roomData && (
             <div className="text-lg text-white mt-4">
@@ -979,7 +1011,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
         </div>
       </div>
     );
-  };
+  });
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -997,7 +1029,6 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
           {roomCode ? (
             <>
               Room <span className="text-white font-mono">{roomCode}</span>
-
             </>
           ) : (
             <>
@@ -1147,7 +1178,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
             {bettingEnabled && roomData ? (
               <div className="bg-gray-900 rounded-md p-2 text-center border border-gray-700">
                 <div className="text-xs text-gray-400 mb-1 font-staatliches">
-                  Prize {hasOptimizedFlow}
+                  Prize {hasOptimizedFlow && "⚡"}
                 </div>
                 <div className="text-sm font-bold text-yellow-300">
                   {roomData.totalPot} {networkInfo.currency}
@@ -1155,12 +1186,10 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
               </div>
             ) : (
               <div className="bg-gray-900 rounded-md p-2 text-center border border-gray-700">
-                <div className="text-xs text-gray-400 mb-1 font-staatliches">WPM</div>
-                <div className="text-sm font-bold">{player.wpm || 0}</div>
+                <div className="text-xs text-gray-400 mb-1 font-staatliches">Score</div>
+                <div className="text-sm font-bold">{player.score}</div>
               </div>
             )}
-
-
           </div>
         </div>
       </div>
@@ -1181,7 +1210,6 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
                   <p className="text-yellow-300 mb-1 font-staatliches">
                     Prize Pool: {roomData.totalPot} {networkInfo.currency}
                   </p>
-
                 </div>
               )}
               {model.players.size >= 2 && (
@@ -1232,7 +1260,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
                     </div>
                   </div>
 
-                  {/* ✅ Share and Play Again buttons */}
+                  {/* ✅ Share and Exit buttons */}
                   <div className="flex flex-col sm:flex-row gap-2 justify-center items-center">
                     <button
                       onClick={() => setShowShareModal(true)}
@@ -1242,15 +1270,14 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
                     </button>
 
                     {isHost && (
-                    <button
-                    onClick={handleExit}
-                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-md text-sm shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 font-staatliches"
-                  >
-                     Exit Game
-                  </button>
+                      <button
+                        onClick={handleExit}
+                        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-md text-sm shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 font-staatliches"
+                      >
+                         Exit Game
+                      </button>
                     )}
                   </div>
-
                 </div>
               ) : (
                 <div className="space-y-2 bg-gray-900 rounded-md p-3 sm:p-4 border border-gray-700">
@@ -1285,7 +1312,6 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
                         <div>Prize Pool</div>
                         <div className="text-yellow-200 font-semibold">
                           {roomData.totalPot} {networkInfo.currency}
-
                         </div>
                       </div>
                     )}
@@ -1296,11 +1322,9 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
                       onClick={handleExit}
                       className="px-3 sm:px-4 py-2 bg-white hover:bg-gray-200 text-black font-bold rounded-md text-xs sm:text-sm shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200"
                     >
-                    Exit Game
+                      Exit Game
                     </button>
                   )}
-
-
                 </div>
               )}
             </div>
@@ -1346,13 +1370,14 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
           </div>
         </div>
       )}
-{(gameState === "waiting" || showGameOver || gameState === "ready") && (
-  <>
-    <SimpleLeaderboard />
-    <ShareModal />
-    <EndGameModal />
-  </>
-)}
+
+      {(gameState === "waiting" || showGameOver || gameState === "ready") && (
+        <>
+          <SimpleLeaderboard />
+          <ShareModal />
+          <EndGameModal />
+        </>
+      )}
     </div>
   );
 }

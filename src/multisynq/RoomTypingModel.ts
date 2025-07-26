@@ -1,10 +1,8 @@
-// ✅ CRITICAL FIX - src/multisynq/RoomTypingModel.ts
-// Fix subscription timing issue
+
 import { TypingModel } from './TypingModel';
 
 export class RoomTypingModel extends TypingModel {
-  private settingsInitialized = false;
-  
+  private settingsInitialized = false;    
   // ✅ NEW: Add betting properties to class
   public enableBetting?: boolean;
   public betAmount?: string;
@@ -15,12 +13,10 @@ export class RoomTypingModel extends TypingModel {
 
   static setRoomSettings(settings: any): void {
     RoomTypingModel.roomSettings = settings;
-    console.log('🚀 Static roomSettings set:', settings);
   }
 
   init(options: any = {}): void {
     // ✅ CRITICAL: Subscribe FIRST, before super.init
-    console.log('🔧 Setting up room settings subscription...');
     this.subscribe("room", "sync-settings", this.syncRoomSettings);
     
     // ✅ CRITICAL: Add broadcast listener for ALL instances
@@ -45,7 +41,6 @@ export class RoomTypingModel extends TypingModel {
       this.applyRoomSettings(roomSettings);
       this.settingsInitialized = true;
 
-      console.log('🎯 Host broadcasting settings:', roomSettings);
       
       // ✅ CRITICAL: Broadcast with different channel name
       this.future(1000).broadcastRoomSettings(roomSettings);
@@ -63,13 +58,11 @@ export class RoomTypingModel extends TypingModel {
         contractAddress: undefined
       };
       this.applyRoomSettings(roomSettings);
-      console.log('👥 Guest waiting for host settings broadcast...');
     }
   }
 
   // ✅ CRITICAL: Use different broadcast method
   broadcastRoomSettings(settings: any): void {
-    console.log('📡 Broadcasting room settings to all players:', settings);
     
     // ✅ Use different channel for broadcast
     this.publish("room", "broadcast-settings", settings);
@@ -82,16 +75,13 @@ export class RoomTypingModel extends TypingModel {
     const isHost = !!RoomTypingModel.roomSettings;
     
     if (isHost) {
-      console.log('🔇 Host ignoring own broadcast');
       return;
     }
 
     if (!settings) {
-      console.log('⚠️ No settings in broadcast');
+      console.log(' No settings in broadcast');
       return;
     }
-
-    console.log('📥 Guest receiving settings broadcast:', settings);
 
     // Apply settings to guest
     this.theme = settings.theme;
@@ -108,19 +98,12 @@ export class RoomTypingModel extends TypingModel {
     this.timeLeft = settings.timeLimit;
     this.settingsInitialized = true;
 
-    console.log('✅ Guest settings applied successfully:', {
-      enableBetting: this.enableBetting,
-      betAmount: this.betAmount,
-      contractAddress: this.contractAddress
-    });
-
     this.publish("view", "update");
   }
 
   // ✅ Keep old method for compatibility
   syncRoomSettings(settings: any): void {
     // This method is kept for backward compatibility but may not be used
-    console.log('📨 Legacy sync method called:', settings);
   }
 
   // ✅ Enhanced: Re-broadcast when new player joins
@@ -130,7 +113,6 @@ export class RoomTypingModel extends TypingModel {
     const isHost = !!RoomTypingModel.roomSettings;
     
     if (isHost && this.players.size > 1) {
-      console.log(`👋 Player ${viewId} joined, re-broadcasting settings...`);
       this.future(500).broadcastRoomSettings(RoomTypingModel.roomSettings);
     }
   }
@@ -162,11 +144,6 @@ export class RoomTypingModel extends TypingModel {
       this.shuffle(this.words);
     }
 
-    console.log('🔧 Room settings applied:', {
-      enableBetting: this.enableBetting,
-      betAmount: this.betAmount,
-      contractAddress: this.contractAddress
-    });
   }
 
   // ✅ Getter methods remain the same
