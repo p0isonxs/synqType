@@ -172,13 +172,13 @@ export function useOptimizedBettingContract(roomId: string, enabled = true) {
             winner?.toLowerCase() === address?.toLowerCase() &&
             amount
           ) {
-            console.log('🎉 OPTIMIZED: Automatic payout received!', {
+            console.log(' Automatic payout received!', {
               roomId: eventRoomId,
               winner,
               amount: formatEther(amount)
             });
             
-            toast.success(`💰 Won ${formatEther(amount)} ETH automatically!`, {
+            toast.success(`Won ${formatEther(amount)} ETH automatically!`, {
               duration: 5000,
               id: 'auto-payout-success'
             });
@@ -238,7 +238,7 @@ export function useOptimizedBettingContract(roomId: string, enabled = true) {
     setIsLoading(true)
     
     try {
-      console.log('🚀 OPTIMIZED: Creating room with single transaction (host auto-bets)')
+      console.log(' Creating room with single transaction (host auto-bets)')
       await requestQueue.add(async () => {
         return writeContract({
           address: TYPING_BET_MANAGER_ADDRESS,
@@ -266,7 +266,7 @@ export function useOptimizedBettingContract(roomId: string, enabled = true) {
     setIsLoading(true)
     
     try {
-      console.log('🎯 OPTIMIZED: Joining room with single transaction')
+      console.log(' Joining room with single transaction')
       await requestQueue.add(async () => {
         return writeContract({
           address: TYPING_BET_MANAGER_ADDRESS,
@@ -294,7 +294,7 @@ export function useOptimizedBettingContract(roomId: string, enabled = true) {
     
     setIsLoading(true)
     try {
-      console.log('🏁 OPTIMIZED: Declaring finished (auto-claim if winner)')
+      console.log(' Declaring finished (auto-claim if winner)')
       await requestQueue.add(async () => {
         return writeContract({
           address: TYPING_BET_MANAGER_ADDRESS,
@@ -321,7 +321,7 @@ export function useOptimizedBettingContract(roomId: string, enabled = true) {
     
     setIsLoading(true)
     try {
-      console.log('⏰ OPTIMIZED: Handling time-up scenario')
+      console.log(' Handling time-up scenario')
       await requestQueue.add(async () => {
         return writeContract({
           address: TYPING_BET_MANAGER_ADDRESS,
@@ -344,7 +344,7 @@ export function useOptimizedBettingContract(roomId: string, enabled = true) {
     
     setIsLoading(true)
     try {
-      console.log('📌 OPTIMIZED: Declaring game result automatically')
+      console.log(' Declaring game result automatically')
       await requestQueue.add(async () => {
         return writeContract({
           address: TYPING_BET_MANAGER_ADDRESS,

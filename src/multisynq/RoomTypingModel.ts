@@ -79,7 +79,7 @@ export class RoomTypingModel extends TypingModel {
     }
 
     if (!settings) {
-      console.log('⚠️ No settings in broadcast');
+      console.log(' No settings in broadcast');
       return;
     }
 

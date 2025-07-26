@@ -179,7 +179,7 @@ export class PlayerModel extends ReactModel {
     
     // Optional: Log significant events
     if (eventType === "typing-progress" && this.progress >= 100) {
-      console.log(`🏁 PLAYER FINISHED: ${this.initials} (${this.viewId.slice(0, 8)})`);
+      console.log(`PLAYER FINISHED: ${this.initials} (${this.viewId.slice(0, 8)})`);
     }
   }
 

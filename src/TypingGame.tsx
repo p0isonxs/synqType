@@ -144,7 +144,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
     const drawPlayers = sortedPlayers.filter(p => p[1].score === topScore);
 
     if (drawPlayers.length > 1) {
-      console.log("🤝 Draw detected between:", drawPlayers.map(p => p[0]));
+      console.log(" Draw detected between:", drawPlayers.map(p => p[0]));
       return "DRAW";
     }
 
@@ -264,7 +264,7 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
               setGameEndState(prev => ({ ...prev, isEnding: false }));
             }
           } else if (winner !== viewId) {
-            console.log(`OPTIMIZED: Game ended, ${winner.slice(0, 8)} won and got paid automatically`);
+            console.log(`Game ended, ${winner.slice(0, 8)} won and got paid automatically`);
             showUniqueToast("Game ended! Winner received the prize automatically.", 'info', 'game-end');
           }
         }
@@ -314,14 +314,13 @@ export default function OptimizedTypingGame({ roomCode }: Props) {
       const finishedPlayers = allPlayers.filter(p => p.progress >= 100);
 
       if (finishedPlayers.length === 1 && canDeclareFinished && !gameEndState.processed) {
-        console.log('🏁 OPTIMIZED: First player finished - auto declaring with payout!');
         setGameEndState(prev => ({ ...prev, processed: true }));
 
         try {
           await declareFinished();
-          showUniqueToast("🎯 Victory declared and reward claimed automatically!", 'success', 'auto-declare');
+          showUniqueToast("Victory declared and reward claimed automatically!", 'success', 'auto-declare');
         } catch (error) {
-          console.error("OPTIMIZED: Auto declare failed:", error);
+          console.error("Auto declare failed:", error);
         }
       }
     };
