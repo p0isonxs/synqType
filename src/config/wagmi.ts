@@ -12,7 +12,7 @@ export const monadTestnet = defineChain({
   },
   rpcUrls: {
     default: {
-      http: ['https://monad-testnet.g.alchemy.com/v2/hoAdNWySM65Xmhn30vcIw'],
+      http: ['https://monad-testnet.g.alchemy.com/v2/N8FOvudhyXRlr3yAQzoFY','https://testnet-rpc.monad.xyz/'],
     },
   },
   blockExplorers: {
