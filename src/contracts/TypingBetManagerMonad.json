@@ -1,0 +1,373 @@
+{
+  "address": "0x517590a4A545Ad4201181d608DCf0a14b16f2183",
+  "abi": [
+    {
+      "type": "event",
+      "anonymous": false,
+      "name": "GameEnded",
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "winner",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "anonymous": false,
+      "name": "GameResultDeclared",
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId",
+          "indexed": false
+        },
+        {
+          "type": "address[]",
+          "name": "winners"
+        },
+        {
+          "type": "uint256",
+          "name": "highestScore",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "anonymous": false,
+      "name": "PlayerFinished",
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "player",
+          "indexed": false
+        },
+        {
+          "type": "uint256",
+          "name": "time",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "anonymous": false,
+      "name": "PlayerJoined",
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "player",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "anonymous": false,
+      "name": "RewardClaimed",
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "winner",
+          "indexed": false
+        },
+        {
+          "type": "uint256",
+          "name": "amount",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "anonymous": false,
+      "name": "RoomCreated",
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId",
+          "indexed": false
+        },
+        {
+          "type": "address",
+          "name": "host",
+          "indexed": false
+        },
+        {
+          "type": "uint256",
+          "name": "betAmount",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "canGameStart",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        }
+      ],
+      "outputs": [
+        {
+          "type": "bool",
+          "name": ""
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "createRoomAndBet",
+      "constant": false,
+      "stateMutability": "payable",
+      "payable": true,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        },
+        {
+          "type": "uint256",
+          "name": "gameTimeLimit"
+        }
+      ],
+      "outputs": []
+    },
+    {
+      "type": "function",
+      "name": "declareFinished",
+      "constant": false,
+      "payable": false,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        }
+      ],
+      "outputs": []
+    },
+    {
+      "type": "function",
+      "name": "declareGameResult",
+      "constant": false,
+      "payable": false,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        },
+        {
+          "type": "address[]",
+          "name": "players"
+        },
+        {
+          "type": "uint256[]",
+          "name": "scores"
+        }
+      ],
+      "outputs": []
+    },
+    {
+      "type": "function",
+      "name": "emergencyRefund",
+      "constant": false,
+      "payable": false,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        }
+      ],
+      "outputs": []
+    },
+    {
+      "type": "function",
+      "name": "finishTime",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        },
+        {
+          "type": "address",
+          "name": "player"
+        }
+      ],
+      "outputs": [
+        {
+          "type": "uint256",
+          "name": ""
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "getBalance",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [],
+      "outputs": [
+        {
+          "type": "uint256",
+          "name": ""
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "getRoomInfo",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        }
+      ],
+      "outputs": [
+        {
+          "type": "address",
+          "name": "host"
+        },
+        {
+          "type": "uint256",
+          "name": "betAmount"
+        },
+        {
+          "type": "uint256",
+          "name": "playerCount"
+        },
+        {
+          "type": "bool",
+          "name": "ended"
+        },
+        {
+          "type": "address",
+          "name": "winner"
+        },
+        {
+          "type": "uint256",
+          "name": "pot"
+        },
+        {
+          "type": "uint256",
+          "name": "timeLimit"
+        },
+        {
+          "type": "uint256",
+          "name": "createdAt"
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "handleTimeUp",
+      "constant": false,
+      "payable": false,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        }
+      ],
+      "outputs": []
+    },
+    {
+      "type": "function",
+      "name": "hasFinished",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        },
+        {
+          "type": "address",
+          "name": "player"
+        }
+      ],
+      "outputs": [
+        {
+          "type": "bool",
+          "name": ""
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "hasJoined",
+      "constant": true,
+      "stateMutability": "view",
+      "payable": false,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        },
+        {
+          "type": "address",
+          "name": "player"
+        }
+      ],
+      "outputs": [
+        {
+          "type": "bool",
+          "name": ""
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "joinRoom",
+      "constant": false,
+      "stateMutability": "payable",
+      "payable": true,
+      "inputs": [
+        {
+          "type": "string",
+          "name": "roomId"
+        }
+      ],
+      "outputs": []
+    }
+  ],
+  "network": "monadTestnet",
+  "chainId": 10143,
+  "deployer": "0x3CBf824576E3BD95f9ae9dC914F165267a056c16",
+  "deployedAt": "2025-07-26T07:18:21.545Z",
+  "txHash": "0x348da4433fb43236cf6b9d81aeb1877744ead1417bc710c4de0ffad730edb37e",
+  "blockNumber": 27919796
+}

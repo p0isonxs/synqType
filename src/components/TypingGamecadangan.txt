@@ -1,0 +1,843 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  useReactModelRoot,
+  useSession,
+  usePublish,
+  useSubscribe,
+  useViewId,
+  useLeaveSession,
+} from "@multisynq/react";
+import { TypingModel } from "./multisynq/TypingModel";
+import { useNavigate, useParams } from "react-router";
+import { useUserData } from "./contexts/UserContext";
+import { useWeb3 } from "./contexts/Web3Context";
+import { useOptimizedBettingContract } from "./hooks/useBettingContract";
+import toast from "react-hot-toast";
+
+const DEFAULT_AVATAR = "/avatars/avatar1.png";
+
+type Props = {
+  roomCode?: string;
+};
+
+export default function OptimizedTypingGame({ roomCode }: Props) {
+  const model = useReactModelRoot<TypingModel>();
+  const session = useSession();
+  const { code } = useParams();
+  const actualRoomCode = roomCode || code;
+
+  const [inputValue, setInputValue] = useState("");
+  const [wordError, setWordError] = useState(false);
+  const [userId, setUserId] = useState("");
+  const [, forceUpdate] = useState(0);
+  const navigate = useNavigate();
+  const viewId = useViewId();
+  const leaveSession = useLeaveSession();
+
+  const { userData } = useUserData();
+  const { address, isConnected } = useWeb3();
+  const [showShareModal, setShowShareModal] = useState(false);
+  // Get betting info from room model
+  const roomModel = model as any;
+  const bettingEnabled = roomModel?.enableBetting;
+
+  // Optimized contract hook
+  const {
+    roomData,
+    isHost: isBettingHost,
+    isPlayer: isBettingPlayer,
+    canDeclareFinished,
+    declareFinished,
+    handleTimeUp,
+    isLoading: isBettingLoading,
+    hasOptimizedFlow,
+  } = useOptimizedBettingContract(
+    actualRoomCode || "",
+    bettingEnabled && isConnected
+  );
+
+  // Winner and reward states
+  const [gameWinner, setGameWinner] = useState<string | null>(null);
+  const [gameEndProcessed, setGameEndProcessed] = useState(false);
+  const [isEndingGame, setIsEndingGame] = useState(false);
+
+  const [gameState, setGameState] = useState("waiting");
+  const [isHost, setIsHost] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const lastPlayersRef = useRef<string>("");
+  const initsSentRef = useRef(false);
+
+  // Unique toast function
+  const showUniqueToast = (message: string, type: 'success' | 'error' | 'info' = 'info', id?: string) => {
+    const toastId = id || message.slice(0, 20);
+    if (type === 'success') {
+      toast.success(message, { id: toastId });
+    } else if (type === 'error') {
+      toast.error(message, { id: toastId });
+    } else {
+      toast(message, { id: toastId });
+    }
+  };
+
+  // Publish functions
+  const sendInitials = usePublish<string>((initials) => [
+    viewId!,
+    "set-initials",
+    initials,
+  ]);
+  const sendAvatar = usePublish<string>((url) => [viewId!, "set-avatar", url]);
+  const sendTypedWord = usePublish<boolean>((correct) => [
+    viewId!,
+    "typed-word",
+    correct,
+  ]);
+  const startGame = usePublish(() => ["game", "start"]);
+  const resetGame = usePublish(() => ["game", "reset"]);
+
+  // Winner determination
+  const determineWinner = useCallback(() => {
+    if (!model || !model.players) return null;
+
+    const players = Array.from(model.players.entries());
+    console.log('🏁 OPTIMIZED: Determining winner from players:', players.map(([id, p]) => ({
+      id: id.slice(0, 8),
+      progress: p.progress,
+      score: p.score,
+      isCompleted: p.progress >= 100
+    })));
+
+    const sortedPlayers = players.sort((a, b) => {
+      const aCompleted = a[1].progress >= 100 ? 1 : 0;
+      const bCompleted = b[1].progress >= 100 ? 1 : 0;
+
+      if (aCompleted !== bCompleted) {
+        return bCompleted - aCompleted;
+      }
+
+      return b[1].score - a[1].score;
+    });
+
+    if (sortedPlayers.length > 0 && sortedPlayers[0][1].progress >= 100) {
+      const winnerId = sortedPlayers[0][0];
+      console.log('🏆 OPTIMIZED: Winner determined:', winnerId.slice(0, 8), 'with progress:', sortedPlayers[0][1].progress);
+      return winnerId;
+    }
+
+    return null;
+  }, [model?.players]);
+
+  // Handle game end with automatic payout
+  useEffect(() => {
+    const handleGameEnd = async () => {
+      if (gameEndProcessed || !model || !bettingEnabled || !roomData) return;
+      if (roomData.gameEnded || isEndingGame) return;
+
+      const hasFinishedPlayer = Array.from(model.players.values()).some(p => p.progress >= 100);
+      const timeIsUp = model.timeLeft === 0;
+      const gameEnded = hasFinishedPlayer || timeIsUp;
+
+      console.log('🎮 OPTIMIZED: Game end check:', {
+        hasFinishedPlayer,
+        timeIsUp,
+        gameEnded,
+        gameEndProcessed,
+        roomId: actualRoomCode
+      });
+
+      if (gameEnded && !gameEndProcessed) {
+        const winner = determineWinner();
+        console.log('🏆 OPTIMIZED: Winner detection:', winner?.slice(0, 8));
+
+        if (winner) {
+          setGameWinner(winner);
+          setGameEndProcessed(true);
+
+          if (winner === viewId && address && canDeclareFinished) {
+            setIsEndingGame(true);
+
+            try {
+              console.log(`Winner (${address.slice(0, 8)}) declaring finished - auto-payout enabled`);
+              showUniqueToast("You won! Declaring victory and claiming reward...", 'success', 'winner-declaring');
+
+              await declareFinished();
+              showUniqueToast("Victory declared! Your reward has been automatically transferred!", 'success', 'auto-paid');
+            } catch (error) {
+              console.error("Failed to declare finished:", error);
+              showUniqueToast("Failed to declare victory. Try manual claim.", 'error', 'error-declare');
+            } finally {
+              setIsEndingGame(false);
+            }
+          } else if (winner !== viewId) {
+            console.log(`Game ended, ${winner.slice(0, 8)} won and got paid automatically`);
+            showUniqueToast("Game ended! Winner received the prize automatically.", 'info', 'game-end');
+          }
+        }
+
+        if (timeIsUp && !winner && model.players.size >= 2) {
+          console.log('Time up, triggering handleTimeUp');
+          try {
+            await handleTimeUp();
+            showUniqueToast("Time's up! Finding fastest player...", 'info', 'time-up');
+          } catch (error) {
+            console.error("Failed to handle time up:", error);
+          }
+        }
+      }
+    };
+
+    handleGameEnd();
+  }, [
+    model?.timeLeft,
+    model?.players?.size,
+    gameEndProcessed,
+    bettingEnabled,
+    roomData?.gameEnded,
+    viewId,
+    address,
+    canDeclareFinished,
+    determineWinner,
+    declareFinished,
+    handleTimeUp,
+    isEndingGame,
+    actualRoomCode
+  ]);
+
+  useEffect(() => {
+    if (model?.countdownActive && model?.countdown === 0) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  }, [model?.countdownActive, model?.countdown]);
+
+  useEffect(() => {
+    if (model && viewId && !initsSentRef.current) {
+      const userExists = model.players.has(viewId);
+      if (userExists && model.players.get(viewId)?.initials) {
+        initsSentRef.current = true;
+        setUserId(userData.initials);
+        return;
+      }
+
+      setUserId(userData.initials);
+      sendInitials(userData.initials);
+      sendAvatar(userData.avatarUrl);
+      initsSentRef.current = true;
+    }
+  }, [
+    model,
+    viewId,
+    actualRoomCode,
+    sendInitials,
+    sendAvatar,
+    userData.initials,
+    userData.avatarUrl,
+  ]);
+
+  useEffect(() => {
+    if (!model || !viewId) return;
+
+    const playerCount = model.players.size;
+
+    if (model.countdownActive) {
+      setGameState("countdown");
+    } else if (model.started && model.timeLeft > 0) {
+      setGameState("playing");
+    } else if (!model.started && model.timeLeft === 0) {
+      setGameState("finished");
+    } else if (!model.started && playerCount < 2) {
+      setGameState("waiting");
+    } else {
+      setGameState("ready");
+    }
+  }, [
+    model?.started,
+    model?.players?.size,
+    model?.timeLeft,
+    model?.countdownActive,
+    model?.countdown,
+    viewId,
+  ]);
+
+  const handleExit = () => {
+    if (!model?.started) {
+      navigate(`/room/${actualRoomCode}/lobby`);
+    } else {
+      leaveSession();
+      navigate("/multiplayer");
+    }
+  };
+
+  const updatePlayers = useCallback(() => {
+    if (!model) return;
+
+    const entries = Array.from(model.players.entries());
+    const playersKey = entries
+      .map(([id, p]) => `${id}:${p.initials}:${p.progress}:${p.score}`)
+      .join("|");
+
+    if (playersKey !== lastPlayersRef.current) {
+      lastPlayersRef.current = playersKey;
+      forceUpdate((prev) => prev + 1);
+      if (viewId && entries.length > 0) {
+        const firstViewId = entries[0][0];
+        setIsHost(viewId === firstViewId);
+      }
+    }
+  }, [model]);
+
+  useSubscribe("view", "update", updatePlayers);
+
+  // Helper functions
+  const getPlayerAvatar = useCallback(
+    (playerId: string, player: any) => {
+      if (playerId === viewId) {
+        return userData.avatarUrl;
+      }
+      return player.avatarUrl || DEFAULT_AVATAR;
+    },
+    [viewId, userData.avatarUrl]
+  );
+
+  const getTruncatedName = (name: string) => {
+    return name.length > 8 ? name.substring(0, 8) + "..." : name;
+  };
+
+  const handlePlayAgain = () => {
+    if (!isHost) return;
+
+    setGameWinner(null);
+    setIsEndingGame(false);
+    setGameEndProcessed(false);
+
+    resetGame();
+    setTimeout(() => {
+      startGame();
+    }, 100);
+  };
+
+  const player = model?.players.get(viewId!);
+  if (!model || !viewId || !player) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <img
+              src="/logo.png"
+              alt="Logo"
+              className="h-32 w-auto mx-auto mb-8"
+            />
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+            <p className="text-gray-400">Loading Typing Battle...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentIndex = player.index;
+  const word = model.words[currentIndex];
+  const isCompleted = currentIndex >= model.words.length;
+
+  useEffect(() => {
+    if (model.started && inputRef.current && !isCompleted && gameState === "playing") {
+      inputRef.current.focus();
+    }
+  }, [model.started, isCompleted, gameState]);
+
+  const handleSubmit = () => {
+    if (!inputValue.trim() || isCompleted || gameState !== "playing") return;
+
+    const correct = inputValue.trim() === word;
+
+    new Audio(correct ? "/uwu-sound-119010.mp3" : "/fart-83471.mp3").play();
+
+    if (!correct) {
+      setWordError(true);
+      setTimeout(() => setWordError(false), 500);
+    } else {
+      if (inputRef.current) {
+        inputRef.current.classList.add("correct");
+        setTimeout(() => {
+          inputRef.current?.classList.remove("correct");
+        }, 250);
+      }
+    }
+
+    sendTypedWord(correct);
+    setInputValue("");
+  };
+
+  const getTimeColor = () => {
+    if (model.timeLeft > model.timeLimit * 0.5) return "text-white";
+    if (model.timeLeft > model.timeLimit * 0.25) return "text-yellow-400";
+    return "text-red-400";
+  };
+
+  const showGameOver = model.timeLeft === 0 || isCompleted;
+
+  // Countdown Overlay
+  const CountdownOverlay = () => {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 backdrop-blur-sm">
+        <div className="text-center">
+          <img
+            src="/logo.png"
+            alt="Logo"
+            className="h-24 w-auto mx-auto mb-8"
+          />
+          <div className="text-8xl font-bold text-white mb-4 animate-pulse font-staatliches">
+            {model.countdown > 0 ? model.countdown : "GO!"}
+          </div>
+          <div className="text-xl text-gray-300">
+            {model.countdown > 0 ? "Get Ready..." : "Start Typing!"}
+          </div>
+          {bettingEnabled && roomData && (
+            <div className="text-lg text-white mt-4">
+              Prize Pool: {roomData.totalPot} ETH
+              {hasOptimizedFlow && (
+                <div className="text-green-300 text-sm mt-1">
+                  Winner gets paid automatically
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Simplified Leaderboard
+  const SimpleLeaderboard = () => {
+    if (!model) return null;
+
+    const sortedPlayers = [...model.players.entries()]
+      .sort((a, b) => {
+        const aCompleted = a[1].progress >= 100 ? 1 : 0;
+        const bCompleted = b[1].progress >= 100 ? 1 : 0;
+
+        if (aCompleted !== bCompleted) {
+          return bCompleted - aCompleted;
+        }
+
+        return b[1].score - a[1].score;
+      });
+
+    return (
+      <div className="max-w-md mx-auto mb-8">
+        <h3 className="text-white text-lg font-bold mb-4 text-center font-staatliches">
+          {showGameOver ? "FINAL RESULTS" : "LIVE SCORES"}
+        </h3>
+        <div className="space-y-2">
+          {sortedPlayers.map(([id, p], index) => {
+            const isRoomWinner = roomData?.winner &&
+              roomData.winner.toLowerCase() === (id === viewId ? address?.toLowerCase() : 'unknown');
+            const isWinnerCandidate = p.progress >= 100 && index === 0;
+
+            return (
+              <div
+                key={id}
+                className={`flex justify-between items-center p-3 rounded-xl ${isRoomWinner
+                    ? "bg-green-800 border border-green-500"
+                    : isWinnerCandidate && bettingEnabled
+                      ? "bg-blue-800 border border-blue-500"
+                      : "bg-gray-800 border border-gray-600"
+                  }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-lg font-bold text-white">
+                    #{index + 1}
+                  </span>
+
+                  <div>
+                    <div className={`font-semibold ${id === viewId ? "text-blue-400" : "text-white"
+                      }`}>
+                      {id === viewId
+                        ? `${getTruncatedName(p.initials || id)} (You)`
+                        : getTruncatedName(p.initials || id)}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {p.wpm || 0} WPM
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <div className="font-bold text-white">
+                    {p.score} words
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {Math.round(p.progress)}%
+                  </div>
+                  {p.progress >= 100 && (
+                    <div className="text-xs text-yellow-400 font-bold">
+                      {isRoomWinner ? "WINNER" : "FINISHED"}
+                    </div>
+                  )}
+                  {isRoomWinner && (
+                    <div className="text-xs text-green-300 font-bold">
+                      Won {roomData?.totalPot || '0'} ETH
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const generateShareText = () => {
+    if (!model) return '';
+
+    const sortedPlayers = [...model.players.entries()]
+      .sort((a, b) => {
+        const aCompleted = a[1].progress >= 100 ? 1 : 0;
+        const bCompleted = b[1].progress >= 100 ? 1 : 0;
+        if (aCompleted !== bCompleted) {
+          return bCompleted - aCompleted;
+        }
+        return b[1].score - a[1].score;
+      });
+
+    const myPlayer = sortedPlayers.find(([id]) => id === viewId);
+    const myRank = myPlayer ? sortedPlayers.indexOf(myPlayer) + 1 : 0;
+    const myScore = myPlayer ? myPlayer[1].score : 0;
+    const myWPM = myPlayer ? myPlayer[1].wpm || 0 : 0;
+
+    let shareText = `Just finished a typing battle!\n\n`;
+    shareText += `My result: Rank #${myRank} - ${myScore} words at ${myWPM} WPM\n`;
+    shareText += `Room: ${actualRoomCode}\n\n`;
+
+    if (bettingEnabled && roomData?.totalPot) {
+      shareText += `Prize pool was ${roomData.totalPot} ETH!\n\n`;
+    }
+
+    shareText += `Challenge me at: https://synq-type.vercel.app/`;
+
+    return shareText;
+  };
+
+  const handleShare = (platform: string) => {
+    const shareText = generateShareText();
+    const encodedText = encodeURIComponent(shareText);
+    const gameUrl = encodeURIComponent('https://synq-type.vercel.app/');
+    
+    const shareUrls = {
+      twitter: `https://twitter.com/intent/tweet?text=${encodedText}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${gameUrl}&quote=${encodedText}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${gameUrl}&summary=${encodedText}`,
+      reddit: `https://reddit.com/submit?title=Typing%20Battle%20Results&text=${encodedText}`,
+      telegram: `https://t.me/share/url?url=${gameUrl}&text=${encodedText}`
+    };
+    
+    window.open(shareUrls[platform as keyof typeof shareUrls], '_blank', 'width=600,height=500,scrollbars=yes');
+    setShowShareModal(false);
+  };
+
+  const ShareModal = () => {
+    if (!showShareModal) return null;
+  
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 backdrop-blur-sm">
+        <div className="max-w-sm w-full mx-4">
+          <div className="bg-black border border-gray-600 rounded-xl p-8">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex-1"></div>
+                <h3 className="text-white text-xl font-bold font-staatliches">
+                  SHARE RESULTS
+                </h3>
+                <div className="flex-1 flex justify-end">
+                  <button
+                    onClick={() => setShowShareModal(false)}
+                    className="text-gray-400 hover:text-white text-xl font-bold w-8 h-8 flex items-center justify-center"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+              <div className="text-gray-400 text-sm">
+                Share your typing battle performance
+              </div>
+            </div>
+  
+            {/* Social Media Buttons */}
+            <div className="space-y-3">
+              <button
+                onClick={() => handleShare('twitter')}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 transform hover:scale-105 flex items-center justify-center space-x-3"
+              >
+                <span className="font-bold text-lg">X</span>
+                <span>Twitter</span>
+              </button>
+              
+              <button
+                onClick={() => handleShare('facebook')}
+                className="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 transform hover:scale-105 flex items-center justify-center space-x-3"
+              >
+                <span className="font-bold text-lg">f</span>
+                <span>Facebook</span>
+              </button>
+              
+              <button
+                onClick={() => handleShare('linkedin')}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 transform hover:scale-105 flex items-center justify-center space-x-3"
+              >
+                <span className="font-bold text-lg">in</span>
+                <span>LinkedIn</span>
+              </button>
+              
+              <button
+                onClick={() => handleShare('reddit')}
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 transform hover:scale-105 flex items-center justify-center space-x-3"
+              >
+                <span className="font-bold text-lg">r/</span>
+                <span>Reddit</span>
+              </button>
+              
+              <button
+                onClick={() => handleShare('telegram')}
+                className="w-full bg-blue-400 hover:bg-blue-500 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 transform hover:scale-105 flex items-center justify-center space-x-3"
+              >
+                <span className="font-bold text-lg">TG</span>
+                <span>Telegram</span>
+              </button>
+            </div>
+  
+            {/* Footer */}
+            <div className="text-center mt-6">
+              <p className="text-gray-500 text-xs">
+                Challenge your friends to beat your score
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-black flex flex-col">
+      {model.countdownActive && <CountdownOverlay />}
+      <ShareModal />
+
+      {/* Header */}
+      <div className="flex justify-between items-center p-6">
+        <button
+          onClick={handleExit}
+          className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-xl font-medium transition-all duration-200"
+        >
+          ← {model.started ? "Exit Game" : "Back to Lobby"}
+        </button>
+
+        <div className="text-gray-400 text-sm">
+          Room <span className="text-white font-mono">{actualRoomCode}</span>
+          {bettingEnabled && (
+            <span className="text-yellow-400 ml-2">
+              {hasOptimizedFlow ? "Optimized" : "Betting"}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex items-center justify-center px-8">
+        <div className="max-w-4xl w-full text-center">
+          {/* Logo */}
+          <div className="mb-8">
+            <img
+              src="/logo.png"
+              alt="Logo"
+              className="h-24 w-auto mx-auto"
+            />
+          </div>
+
+          {/* Game Status */}
+          <div className="mb-8">
+            {gameState === "waiting" ? (
+              <div>
+                <h2 className="text-white text-3xl font-bold mb-4 font-staatliches">
+                  WAITING FOR PLAYERS
+                </h2>
+                <p className="text-gray-400 mb-4">
+                  {model.players.size} of {model.maxPlayers || 6} players joined
+                </p>
+                {bettingEnabled && roomData && (
+                  <div className="mb-4">
+                    <p className="text-yellow-300 text-lg">
+                      Prize Pool: {roomData.totalPot} ETH
+                    </p>
+                    {hasOptimizedFlow && (
+                      <p className="text-green-300 text-sm">
+                        Auto-payout enabled
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : gameState === "playing" && !isCompleted ? (
+              <div>
+                <div className="grid grid-cols-3 gap-4 mb-6 max-w-md mx-auto">
+                  <div className="bg-gray-800 rounded-xl p-4 border border-gray-600">
+                    <div className="text-xs text-gray-400 mb-1">Time</div>
+                    <div className={`text-lg font-bold ${getTimeColor()}`}>
+                      {model.timeLeft}s
+                    </div>
+                  </div>
+                  <div className="bg-gray-800 rounded-xl p-4 border border-gray-600">
+                    <div className="text-xs text-gray-400 mb-1">WPM</div>
+                    <div className="text-lg font-bold text-white">{player.wpm || 0}</div>
+                  </div>
+                  <div className="bg-gray-800 rounded-xl p-4 border border-gray-600">
+                    <div className="text-xs text-gray-400 mb-1">Score</div>
+                    <div className="text-lg font-bold text-white">{player.score}</div>
+                  </div>
+                </div>
+
+                {/* Current Word */}
+                <div className="bg-gray-800 rounded-xl p-8 mb-6 border border-gray-600">
+                  <div className="text-4xl font-bold text-white mb-4 font-mono">
+                    {word}
+                  </div>
+                  <div className="text-gray-400 text-sm">
+                    Word {currentIndex + 1} of {model.words.length}
+                  </div>
+                </div>
+
+                {/* Input */}
+                <div className="max-w-md mx-auto">
+                  <input
+                    ref={inputRef}
+                    value={inputValue}
+                    onChange={(e) => {
+                      if (gameState === "playing") {
+                        setInputValue(e.target.value);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if ([" ", "Enter"].includes(e.key)) {
+                        e.preventDefault();
+                        handleSubmit();
+                      }
+                    }}
+                    className={`w-full px-4 py-3 text-lg bg-white rounded-xl text-black focus:outline-none transition-all duration-200 ${wordError
+                      ? "ring-2 ring-red-500"
+                      : "focus:ring-2 focus:ring-blue-500"
+                      }`}
+                    placeholder="Type here..."
+                  />
+                  <p className="text-gray-400 text-sm mt-2">
+                    Press space or enter to submit
+                  </p>
+                </div>
+              </div>
+            ) : showGameOver ? (
+              <div>
+                <h2 className="text-white text-3xl font-bold mb-4 font-staatliches">
+                  {isCompleted ? "RACE FINISHED!" : "GAME OVER!"}
+                </h2>
+
+                {/* Winner Panel */}
+                {bettingEnabled && roomData && (
+                  <div className="mb-6">
+                    {roomData.winner && address &&
+                      roomData.winner.toLowerCase() === address.toLowerCase() ? (
+                      <div className="bg-green-900/30 border border-green-600 rounded-xl p-6">
+                        <h3 className="text-green-400 font-bold text-xl mb-2">
+                          YOU WON!
+                        </h3>
+                        <p className="text-green-200 mb-2">
+                          Prize: {roomData.totalPot} ETH
+                        </p>
+                        <p className="text-green-300 text-sm">
+                          Reward automatically transferred to your wallet
+                        </p>
+                      </div>
+                    ) : roomData.winner ? (
+                      <div className="bg-gray-800 border border-gray-600 rounded-xl p-4">
+                        <p className="text-gray-400">
+                          Winner received {roomData.totalPot} ETH automatically
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-800 border border-gray-600 rounded-xl p-4">
+                        <p className="text-gray-400">
+                          Processing results... Prize: {roomData.totalPot} ETH
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+
+
+                {/* Play Again */}
+                {isHost && (
+                  <button
+                    onClick={handlePlayAgain}
+                    disabled={isEndingGame || isBettingLoading}
+                    className="bg-white hover:bg-gray-100 text-black font-semibold py-3 px-6 rounded-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:transform-none font-staatliches"
+                  >
+                    {isEndingGame ? "Finalizing..." : "Play Again"}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div>
+                <h2 className="text-white text-3xl font-bold mb-4 font-staatliches">
+                  READY TO RACE?
+                </h2>
+                <p className="text-gray-400 mb-4">
+                  {model.words.length} words • {model.timeLimit}s time limit
+                </p>
+                {bettingEnabled && roomData && (
+                  <p className="text-yellow-300 text-lg mb-4">
+                    Prize Pool: {roomData.totalPot} ETH
+                    {hasOptimizedFlow && <span className="text-green-300"> Auto-payout</span>}
+                  </p>
+                )}
+                {isHost && model.players.size >= 2 && (
+                  <button
+                    onClick={() => startGame()}
+                    className="bg-white hover:bg-gray-100 text-black font-semibold py-4 px-8 rounded-xl text-lg transition-all duration-200 transform hover:scale-105 font-staatliches"
+                  >
+                    Start Race
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Leaderboard */}
+          {(gameState === "waiting" || showGameOver || gameState === "ready") && (
+            <SimpleLeaderboard />
+          )}
+        </div>
+
+      </div>
+      {/* Share Results */}
+      <div className="mb-6 flex justify-center">
+      <button
+    onClick={() => setShowShareModal(true)}
+    className="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-all duration-200 text-sm"
+  >
+    Share
+  </button>
+      </div>
+      {/* Footer */}
+      <footer className="w-full py-6 px-8 border-t border-gray-800">
+        <div className="text-center">
+          <p className="text-gray-500 text-sm">
+            {bettingEnabled ?
+              (hasOptimizedFlow ? "Optimized betting room with auto-payouts" : "Betting room active")
+              : "Multiplayer typing challenge"}
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}

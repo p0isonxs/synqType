@@ -1,0 +1,579 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate, useParams } from "react-router";
+import {
+  useReactModelRoot,
+  useSession,
+  useDetachCallback,
+  usePublish,
+  useSubscribe,
+  useViewId,
+  useLeaveSession,
+} from "@multisynq/react";
+import { TypingModel } from "../multisynq/TypingModel";
+import { useUserData } from "../contexts/UserContext";
+import { useWeb3 } from "../contexts/Web3Context";
+import { useOptimizedBettingContract } from "../hooks/useBettingContract";
+import BetConfirmationModal from "./BetConfirmationModal";
+import toast from "react-hot-toast";
+import { SendIcon } from "lucide-react";
+
+const DEFAULT_AVATAR = "/avatars/avatar1.png";
+
+interface ChatMessage {
+  id: string;
+  viewId: string;
+  initials: string;
+  avatarUrl: string;
+  message: string;
+  timestamp: number;
+}
+
+export default function OptimizedRoomLobby() {
+  const model = useReactModelRoot<TypingModel>();
+  const session = useSession();
+  const { code } = useParams();
+  const navigate = useNavigate();
+  const viewId = useViewId();
+  const leaveSession = useLeaveSession();
+
+  // Web3 and betting state
+  const { isConnected, address } = useWeb3();
+  const [showBetModal, setShowBetModal] = useState(false);
+  const [hasBetModalShown, setHasBetModalShown] = useState(false);
+
+  const { userData } = useUserData();
+
+  // Get betting data from room model
+  const roomModel = model as any;
+  const bettingEnabled = roomModel?.enableBetting;
+
+  // ✅ Use optimized betting contract hook
+  const {
+    roomData,
+    isHost: isBettingHost,
+    isPlayer: isBettingPlayer,
+    canJoin,
+    joinRoom,
+    isLoading: isBettingLoading,
+    hasOptimizedFlow,
+  } = useOptimizedBettingContract(code || "", bettingEnabled && isConnected);
+
+  // Chat refs and state
+  const lastPlayersRef = useRef<string>("");
+  const initsSentRef = useRef(false);
+  const settingsInitializedRef = useRef(false);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [currentMessage, setCurrentMessage] = useState("");
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useDetachCallback(() => {
+    leaveSession();
+  });
+
+  // Publish functions
+  const sendStart = usePublish(() => ["game", "start"]);
+  const sendInitials = usePublish<string>((initials) => [viewId!, "set-initials", initials]);
+  const sendAvatar = usePublish<string>((url) => [viewId!, "set-avatar", url]);
+  const initializeRoomSettings = usePublish<any>((settings) => ["room", "initialize-settings", settings]);
+  const sendChatMessage = usePublish<ChatMessage>((message) => ["chat", "message", message]);
+
+  const [isHost, setIsHost] = useState(false);
+  const [players, setPlayers] = useState(Array.from(model?.players.entries() || []));
+
+  // ✅ FIXED: Show bet modal for ALL non-betting players (including host who missed initial bet)
+  useEffect(() => {
+    if (
+      bettingEnabled && 
+      roomData && 
+      canJoin &&
+      isConnected &&
+      !hasBetModalShown &&
+      !isBettingPlayer
+    ) {
+      console.log('💰 Showing bet modal for player who needs to bet (including host)');
+      setShowBetModal(true);
+      setHasBetModalShown(true);
+    }
+  }, [bettingEnabled, roomData, canJoin, isConnected, hasBetModalShown, isBettingPlayer]);
+
+  // ✅ Game ready check
+  const canActuallyStart = () => {
+    if (!bettingEnabled) {
+      return players.length >= 2;
+    }
+    const maxPlayersFromSettings = model?.maxPlayers || 2;
+    const allPlayersJoined = roomData?.playerCount === players.length;
+    const reachedMaxCapacity = players.length >= maxPlayersFromSettings;
+    return reachedMaxCapacity && allPlayersJoined;
+  };
+
+  // ✅ Manual start
+  const handleStart = async () => {
+    if (!isHost) return;
+    if (!canActuallyStart()) {
+      toast.error(bettingEnabled ? "Need more players in betting pool!" : "Need at least 2 players to start!");
+      return;
+    }
+    try {
+      toast.success("Starting typing challenge...");
+      sendStart();
+    } catch (error) {
+      console.error("Failed to start game:", error);
+      toast.error("Failed to start game");
+    }
+  };
+
+  // ✅ Manual bet function
+  const handleManualBet = async () => {
+    if (!roomData?.betAmount) {
+      toast.error("Betting amount not available");
+      return;
+    }
+    try {
+      await joinRoom(roomData.betAmount);
+      toast.success('Joined betting pool!');
+    } catch (error: any) {
+      toast.error(error.message || "Failed to join betting pool");
+    }
+  };
+
+  // ✅ ADDED: Copy room code function
+  const handleCopyRoomCode = () => {
+    if (code) {
+      navigator.clipboard.writeText(code);
+      toast.success("Room code copied!");
+    }
+  };
+
+  // ✅ RESTORED: Chat functions
+  const handleChatMessage = useCallback((message: ChatMessage) => {
+    setChatMessages(prev => [...prev, message]);
+    if (!isChatOpen) {
+      setUnreadCount(prev => prev + 1);
+    }
+  }, [isChatOpen]);
+
+  useSubscribe("chat", "message-received", handleChatMessage);
+
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMessages]);
+
+  useEffect(() => {
+    if (isChatOpen) {
+      setUnreadCount(0);
+    }
+  }, [isChatOpen]);
+
+  const handleSendMessage = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentMessage.trim() || !viewId) return;
+
+    const message: ChatMessage = {
+      id: `${viewId}-${Date.now()}`,
+      viewId,
+      initials: userData.initials,
+      avatarUrl: userData.avatarUrl,
+      message: currentMessage.trim(),
+      timestamp: Date.now()
+    };
+
+    sendChatMessage(message);
+    setCurrentMessage("");
+  }, [currentMessage, viewId, userData.initials, userData.avatarUrl, sendChatMessage]);
+
+  const toggleChat = useCallback(() => {
+    setIsChatOpen(prev => !prev);
+  }, []);
+
+  const formatTime = useCallback((timestamp: number) => {
+    return new Date(timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }, []);
+
+  const updatePlayers = useCallback(() => {
+    if (!model) return;
+    const entries = Array.from(model.players.entries());
+    const playersKey = entries.map(([id, p]) => `${id}:${p.initials}`).join("|");
+    if (playersKey !== lastPlayersRef.current) {
+      lastPlayersRef.current = playersKey;
+      setPlayers(entries);
+      if (viewId && entries.length > 0) {
+        const firstViewId = entries[0][0];
+        setIsHost(viewId === firstViewId);
+      }
+    }
+  }, [model, viewId]);
+
+  useSubscribe("view", "update", updatePlayers);
+
+  // Keep all existing useEffects
+  useEffect(() => {
+    if (model && viewId && !initsSentRef.current) {
+      sendInitials(userData.initials);
+      sendAvatar(userData.avatarUrl);
+      initsSentRef.current = true;
+    }
+  }, [model, viewId, sendInitials, sendAvatar, userData.initials, userData.avatarUrl]);
+
+  useEffect(() => {
+    if (model && viewId && !settingsInitializedRef.current && model.players.size <= 1) {
+      if (userData.roomSettings && Object.keys(userData.roomSettings).length > 0) {
+        initializeRoomSettings(userData.roomSettings);
+        settingsInitializedRef.current = true;
+      }
+    }
+  }, [model, viewId, initializeRoomSettings, userData.roomSettings]);
+
+  useEffect(() => {
+    if (model?.countdownActive && code) {
+      setTimeout(() => {
+        navigate(`/room/${code}`);
+      }, 100);
+    }
+  }, [model?.countdownActive, code, navigate]);
+
+  const getPlayerAvatar = useCallback((playerId: string, player: any) => {
+    if (playerId === viewId) {
+      return userData.avatarUrl;
+    }
+    return player.avatarUrl || DEFAULT_AVATAR;
+  }, [viewId, userData.avatarUrl]);
+
+  const getPlayerName = useCallback((playerId: string, player: any) => {
+    if (playerId === viewId) {
+      return userData.initials || "You";
+    }
+    return player.initials || `Guest_${playerId.substring(0, 6)}`;
+  }, [viewId, userData.initials]);
+
+  const handleExit = () => {
+    leaveSession();
+    navigate("/multiplayer");
+  };
+
+  if (!model || !viewId) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading lobby...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-black flex flex-col relative">
+      {/* Header */}
+      <header className="w-full py-6 px-8">
+        <div className="flex items-center justify-between">
+          <button onClick={handleExit} className="text-gray-400 hover:text-white transition-colors">
+            ← Exit Lobby
+          </button>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-white">
+              {bettingEnabled ? "Betting Room" : "Typing Room"}
+            </h1>
+            <div className="flex items-center justify-center space-x-2 mt-1">
+              <span className="text-gray-400 text-sm">Room Code:</span>
+              <button
+                onClick={handleCopyRoomCode}
+                className="text-white font-mono bg-gray-800 px-3 py-1 rounded border border-gray-600 hover:bg-gray-700 transition-colors"
+              >
+                {code}
+              </button>
+            </div>
+          </div>
+          <div className="text-gray-400 text-sm">
+            {bettingEnabled ? "Betting Mode" : "Normal Mode"}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="flex-1 flex items-center justify-center px-8 py-8">
+        <div className="max-w-4xl w-full">
+          
+          {/* Game Settings */}
+          <div className="mb-8 text-center">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div className="text-gray-400 text-sm mb-1">Theme</div>
+                <div className="text-white font-semibold">{model.theme}</div>
+              </div>
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div className="text-gray-400 text-sm mb-1">Words</div>
+                <div className="text-white font-semibold">{model.sentenceLength}</div>
+              </div>
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div className="text-gray-400 text-sm mb-1">Time</div>
+                <div className="text-white font-semibold">{model.timeLimit}s</div>
+              </div>
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div className="text-gray-400 text-sm mb-1">Players</div>
+                <div className="text-white font-semibold">{players.length}/{model.maxPlayers}</div>
+              </div>
+            </div>
+
+            {/* Betting Info */}
+            {bettingEnabled && roomData && (
+              <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-6">
+                <div className="text-white font-medium mb-2">
+                  Prize Pool: {roomData.totalPot} ETH
+                </div>
+                <div className="text-gray-400 text-sm">
+                  {roomData.playerCount} / {players.length} players in betting pool
+                </div>
+                {/* ✅ ADDED: Warning if host hasn't bet */}
+                {isHost && !isBettingPlayer && (
+                  <div className="mt-2 text-yellow-300 text-sm">
+                    ⚠️ You haven't joined the betting pool yet
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Players Grid */}
+          <div className="mb-8">
+            <h2 className="text-xl font-bold text-white mb-6 text-center">
+              Players ({players.length}/{model.maxPlayers})
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {players.map(([id, player]) => (
+                <div key={id} className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                  <div className="flex items-center space-x-3">
+                    <img
+                      src={getPlayerAvatar(id, player)}
+                      alt={getPlayerName(id, player)}
+                      className="w-12 h-12 rounded-full object-cover border-2 border-gray-600"
+                      onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <span className="font-semibold text-white">
+                          {getPlayerName(id, player)}
+                        </span>
+                        {id === viewId && (
+                          <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full">
+                            You
+                          </span>
+                        )}
+                        {players[0] && players[0][0] === id && (
+                          <span className="bg-yellow-600 text-white text-xs px-2 py-1 rounded-full">
+                            Host
+                          </span>
+                        )}
+                      </div>
+
+                      {/* ✅ IMPROVED: Betting Status for ALL players */}
+                      {bettingEnabled && (
+                        <div>
+                          {isBettingPlayer && id === viewId ? (
+                            <span className="bg-green-700 text-white text-xs px-2 py-1 rounded">
+                              Bet Placed
+                            </span>
+                          ) : id === viewId && isConnected && canJoin ? (
+                            <button
+                              onClick={handleManualBet}
+                              disabled={isBettingLoading}
+                              className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1 rounded transition-colors"
+                            >
+                              {isBettingLoading ? "Betting..." : `Bet ${roomData?.betAmount} ETH`}
+                            </button>
+                          ) : id === viewId ? (
+                            <span className="bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded">
+                              {!isConnected ? "Connect Wallet" : "Loading..."}
+                            </span>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Empty slots */}
+              {Array.from({ length: model.maxPlayers - players.length }).map((_, index) => (
+                <div key={`empty-${index}`} className="bg-gray-800 rounded-lg p-4 border-2 border-dashed border-gray-600 opacity-50">
+                  <div className="flex items-center justify-center h-12">
+                    <span className="text-gray-500 text-sm">Waiting for player...</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Action Section */}
+          <div className="text-center">
+            {isHost ? (
+              <div className="space-y-4">
+                <button
+                  onClick={handleStart}
+                  disabled={!canActuallyStart() || isBettingLoading}
+                  className="bg-white hover:bg-gray-100 text-black font-semibold py-4 px-8 rounded-lg text-lg transition-all duration-200 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                >
+                  {isBettingLoading ? "Starting..." : 
+                   canActuallyStart() ? "Start Game" : 
+                   bettingEnabled ? "Waiting for all players to bet" : "Need more players"}
+                </button>
+
+                {/* ✅ ADDED: Host betting reminder */}
+                {bettingEnabled && !isBettingPlayer && (
+                  <div className="bg-yellow-900/30 border border-yellow-600 rounded-lg p-3">
+                    <p className="text-yellow-200 text-sm">
+                      ⚠️ As host, you need to join the betting pool before starting
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-gray-400 text-lg">
+                  Waiting for host to start the game...
+                </p>
+                
+                {/* Manual Bet Button for non-hosts */}
+                {bettingEnabled && canJoin && isConnected && !isBettingPlayer && (
+                  <button
+                    onClick={() => setShowBetModal(true)}
+                    className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors"
+                  >
+                    Join Betting Pool ({roomData?.betAmount || '0'} ETH)
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <footer className="w-full py-6 px-8 border-t border-gray-800">
+        <div className="text-center">
+          <p className="text-gray-500 text-sm">
+            Share room code with friends to join • Click room code to copy
+          </p>
+        </div>
+      </footer>
+
+      {/* ✅ RESTORED: Chat Toggle Button */}
+      <button
+        onClick={toggleChat}
+        className="fixed bottom-6 right-6 bg-gray-800 hover:bg-gray-700 text-white p-4 rounded-full shadow-lg transition-all duration-200 z-50"
+      >
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+        {unreadCount > 0 && (
+          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-6 h-6 flex items-center justify-center font-bold">
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {/* ✅ RESTORED: Chat Panel */}
+      {isChatOpen && (
+        <div className="fixed bottom-24 right-6 w-80 sm:w-96 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-40">
+          <div className="flex items-center justify-between p-4 border-b border-gray-700">
+            <h3 className="text-lg font-semibold text-white">Room Chat</h3>
+            <button
+              onClick={toggleChat}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div
+            ref={chatScrollRef}
+            className="h-64 overflow-y-auto p-4 space-y-3 bg-gray-800"
+          >
+            {chatMessages.length === 0 ? (
+              <div className="text-center text-gray-500 py-8">
+                <p className="text-sm">No messages yet</p>
+                <p className="text-xs">Start the conversation!</p>
+              </div>
+            ) : (
+              chatMessages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex items-start space-x-2 ${msg.viewId === viewId ? 'flex-row-reverse space-x-reverse' : ''}`}
+                >
+                  <img
+                    src={msg.avatarUrl || DEFAULT_AVATAR}
+                    alt={msg.initials}
+                    className="w-8 h-8 rounded-full object-cover border border-gray-600 flex-shrink-0"
+                    onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
+                  />
+                  <div className={`max-w-[70%] ${msg.viewId === viewId ? 'text-right' : ''}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium text-gray-300">
+                        {msg.viewId === viewId ? 'You' : msg.initials}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {formatTime(msg.timestamp)}
+                      </span>
+                    </div>
+                    <div
+                      className={`px-3 py-2 rounded-lg text-sm ${msg.viewId === viewId
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-700 text-gray-100'
+                        }`}
+                    >
+                      {msg.message}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-700">
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                value={currentMessage}
+                onChange={(e) => setCurrentMessage(e.target.value)}
+                placeholder="Type a message..."
+                className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-white transition-colors"
+                maxLength={200}
+              />
+              <button
+                type="submit"
+                disabled={!currentMessage.trim()}
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors duration-200"
+              >
+                <SendIcon className="w-5 h-5" />
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ✅ IMPROVED: Betting Modal for ALL non-betting players */}
+      {bettingEnabled && roomData && !isBettingPlayer && (
+        <BetConfirmationModal
+          isOpen={showBetModal}
+          onClose={() => setShowBetModal(false)}
+          roomId={code || ""}
+          betAmount={roomData.betAmount}
+          hostName={players.find(([id]) => id === players[0]?.[0])?.[1]?.initials || "Host"}
+          onConfirmed={() => setShowBetModal(false)}
+          isOptimized={hasOptimizedFlow}
+        />
+      )}
+    </div>
+  );
+}
