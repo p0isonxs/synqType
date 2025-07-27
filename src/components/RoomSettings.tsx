@@ -324,7 +324,7 @@ export default function OptimizedRoomSettings({ mode: propMode }: RoomSettingsPr
           loop
           style={{ width: 200, height: 200 }}
         />
-        <p className="mt-4 text-gray-400">
+        <p className="mt-4 text-gray-400 font-staatliches">
           {isContractLoading ? "Creating room and placing bet..." : "Generating words..."}
         </p>
         {isContractLoading && (
@@ -604,7 +604,7 @@ export default function OptimizedRoomSettings({ mode: propMode }: RoomSettingsPr
               {isProcessing ? (
                 <div className="flex items-center justify-center space-x-2">
                   <div className="w-5 h-5 border-2 border-gray-600 border-t-black rounded-full animate-spin"></div>
-                  <span>
+                  <span className="font-staatliches">
                     {isContractLoading ? "Creating Room + Placing Bet..." : "Generating Words..."}
                   </span>
                 </div>

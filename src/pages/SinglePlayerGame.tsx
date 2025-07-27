@@ -268,8 +268,8 @@ export default function SinglePlayer() {
         >
           ← Back
         </button>
-        <div className="text-gray-400 text-xs sm:text-sm">
-          Mode <span className="text-white font-mono">solo</span>
+        <div className="text-gray-400 text-xs sm:text-sm font-staatliches">
+          Mode <span className="text-white font-staatliches">solo</span>
         </div>
       </div>
 
@@ -278,7 +278,7 @@ export default function SinglePlayer() {
           <div className="relative mb-3 sm:mb-4">
             <div className="relative bg-gray-800 rounded-xl p-3 sm:p-4 md:p-5 border border-gray-700">
               <div className="absolute left-0 top-1/2 transform -translate-y-1/2 -translate-x-full pr-3 flex items-center">
-                <div className="text-xs sm:text-sm text-white font-semibold whitespace-nowrap">
+                <div className="text-xs sm:text-sm text-white font-semibold whitespace-nowrap ">
                 {getTruncatedName(userData.initials)}
                 </div>
               </div>
@@ -316,7 +316,7 @@ export default function SinglePlayer() {
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 mb-3">
             <div className="bg-gray-900 rounded-lg p-2 text-center border border-gray-700">
-              <div className="text-xs text-gray-400 mb-1">Time</div>
+              <div className="text-xs text-gray-400 mb-1 font-staatliches">Time</div>
               <div
                 className={`text-base sm:text-lg font-bold ${getTimeColor()}`}
               >
@@ -324,11 +324,11 @@ export default function SinglePlayer() {
               </div>
             </div>
             <div className="bg-gray-900 rounded-lg p-2 text-center border border-gray-700">
-              <div className="text-xs text-gray-400 mb-1">Score</div>
+              <div className="text-xs text-gray-400 mb-1 font-staatliches">Score</div>
               <div className="text-base sm:text-lg font-bold">{score}</div>
             </div>
             <div className="bg-gray-900 rounded-lg p-2 text-center border border-gray-700 col-span-2 sm:col-span-1">
-              <div className="text-xs text-gray-400 mb-1">WPM</div>
+              <div className="text-xs text-gray-400 mb-1 font-staatliches">WPM</div>
               <div className="text-base sm:text-lg font-bold">
                 {gameStarted
                   ? Math.round((score / Math.max(1, duration - timeLeft)) * 60)
@@ -348,25 +348,25 @@ export default function SinglePlayer() {
               {timeLeft === 0 ? (
                 <div className="space-y-3 bg-gray-900 rounded-lg p-6 border border-gray-700">
                   <div className="text-3xl mb-2"></div>
-                  <h2 className="text-xl font-bold text-white mb-2">
-                    {score === words.length ? "🏁 Finish Line!" : "Game Over!"}
+                  <h2 className="text-xl font-bold text-white mb-2 font-staatliches">
+                    {score === words.length ? "Finish Line!" : "Game Over!"}
                   </h2>
 
-                  <div className="text-lg mb-3">
-                    Final Score: <span className="font-bold">{score}</span>{" "}
+                  <div className="text-lg mb-3 font-staatliches">
+                    Final Score: <span className="font-bold font-staatliches">{score}</span>{" "}
                     words
                   </div>
 
                   <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
                     <div className="text-gray-400">
-                      <div>WPM</div>
-                      <div className="text-white font-bold">
+                      <div className="font-staatliches">WPM</div>
+                      <div className="text-white font-bold font-staatliches">
                         {Math.round((score / duration) * 60)}
                       </div>
                     </div>
                     <div className="text-gray-400">
-                      <div>Accuracy</div>
-                      <div className="text-white font-bold">
+                      <div className="font-staatliches">Accuracy</div>
+                      <div className="text-white font-bold font-staatliches">
                         {Math.round(
                           (score / (score + (words.length - score))) * 100
                         ) || 0}
@@ -374,8 +374,8 @@ export default function SinglePlayer() {
                       </div>
                     </div>
                     <div className="text-gray-400">
-                      <div>Progress</div>
-                      <div className="text-white font-bold">
+                      <div className="font-staatliches">Progress</div>
+                      <div className="text-white font-bold font-staatliches">
                         {Math.round((index / words.length) * 100) || 0}%
                       </div>
                     </div>
@@ -383,36 +383,36 @@ export default function SinglePlayer() {
 
                   <button
                     onClick={startGame}
-                    className="px-5 py-2 bg-white hover:bg-gray-200 text-black font-bold rounded-lg text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+                    className="px-5 py-2 bg-white hover:bg-gray-200 text-black font-bold rounded-lg text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 font-staatliches"
                   >
                     Play Again
                   </button>
                 </div>
               ) : (
                 <div className="space-y-3 bg-gray-900 rounded-lg p-3 sm:p-4 md:p-6 border border-gray-700">
-                  <h2 className="text-lg sm:text-xl font-bold text-white mb-2">
+                  <h2 className="text-lg sm:text-xl font-bold text-white mb-2 font-staatliches">
                     Ready to Race?
                   </h2>
-                  <p className="text-gray-400 mb-3 text-sm">
+                  <p className="text-gray-400 mb-3 text-sm font-staatliches">
                     Solo typing challenge with {settings.sentenceLength} words
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-3 text-xs sm:text-sm">
                     <div className="text-gray-400">
-                      <div>Theme</div>
-                      <div className="text-white font-semibold">
+                        <div className="font-staatliches">Theme</div>
+                      <div className="text-white font-semibold font-staatliches">
                         {settings.theme || "Default"}
                       </div>
                     </div>
                     <div className="text-gray-400">
-                      <div>Max Length</div>
-                      <div className="text-white font-semibold">
+                      <div className="font-staatliches">Max Length</div>
+                      <div className="text-white font-semibold font-staatliches">
                         {settings.sentenceLength}
                       </div>
                     </div>
                     <div className="text-gray-400">
-                      <div>Time Limit</div>
-                      <div className="text-white font-semibold">
+                      <div className="font-staatliches">Time Limit</div>
+                      <div className="text-white font-semibold font-staatliches">
                         {duration}s
                       </div>
                     </div>
@@ -420,7 +420,7 @@ export default function SinglePlayer() {
 
                   <button
                     onClick={startGame}
-                    className="px-4 sm:px-5 py-2 bg-white hover:bg-gray-200 text-black font-bold rounded-lg text-sm sm:text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+                    className="px-4 sm:px-5 py-2 bg-white hover:bg-gray-200 text-black font-bold rounded-lg text-sm sm:text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 font-staatliches"
                   >
                     Start Race
                   </button>
@@ -434,7 +434,7 @@ export default function SinglePlayer() {
       {gameStarted && timeLeft > 0 && (
         <div className="px-2 sm:px-3 pb-3">
           <div className="max-w-5xl mx-auto">
-            <label className="block text-gray-400 text-xs mb-2">
+            <label className="block text-gray-400 text-xs mb-2 font-staatliches">
               Type here
             </label>
             <input
@@ -454,7 +454,7 @@ export default function SinglePlayer() {
               }`}
               placeholder={words[index] || "Start typing..."}
             />
-            <div className="mt-2 text-center text-gray-400 text-xs">
+            <div className="mt-2 text-center text-gray-400 text-xs font-staatliches">
               Press space or enter to submit
             </div>
           </div>
@@ -464,7 +464,7 @@ export default function SinglePlayer() {
       {(!gameStarted || timeLeft === 0) && (
         <div className="px-2 sm:px-3 pb-4 sm:pb-6">
           <div className="bg-gray-900 rounded-lg p-3 border border-gray-700 max-w-5xl mx-auto">
-            <h3 className="text-base sm:text-lg font-bold text-white mb-2 text-center">
+            <h3 className="text-base sm:text-lg font-bold text-white mb-2 text-center font-staatliches">
               Your Highest Scores
             </h3>
             <div className="space-y-2">
@@ -478,26 +478,20 @@ export default function SinglePlayer() {
                       className="flex justify-between items-center p-2 bg-gray-800 rounded-lg"
                     >
                       <div className="flex items-center space-x-2">
-                        <span className="text-sm">
-                          {index === 0
-                            ? "🥇"
-                            : index === 1
-                            ? "🥈"
-                            : index === 2
-                            ? "🥉"
-                            : "🏆"}
+                        <span className="text-sm ">
+                          #{index + 1}
                         </span>
-                        <span className="font-semibold text-white text-xs sm:text-sm">
+                        <span className="font-semibold text-white text-xs sm:text-sm font-staatliches">
                           {getTruncatedName(name)}
                         </span>
                       </div>
-                      <span className="font-bold text-xs sm:text-sm">
+                      <span className="font-bold text-xs sm:text-sm font-staatliches">
                         {score} words
                       </span>
                     </div>
                   ))
               ) : (
-                <div className="text-center text-gray-400 py-3 text-xs sm:text-sm">
+                <div className="text-center text-gray-400 py-3 text-xs sm:text-sm font-staatliches">
                   No scores yet. Be the first to play!
                 </div>
               )}
