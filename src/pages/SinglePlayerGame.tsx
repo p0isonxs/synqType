@@ -67,32 +67,20 @@ export default function SinglePlayer() {
     return name.length > 5 ? name.substring(0, 5) + "..." : name;
   };
 
-  function loadLeaderboard(): HighscoreEntry[] {
-    const data = localStorage.getItem(LEADERBOARD_KEY);
-    return data ? JSON.parse(data) : [];
-  }
 
-  function saveLeaderboard(leaderboard: HighscoreEntry[]) {
-    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(leaderboard));
-  }
 
-  function updateLeaderboard(initials: string, score: number, avatarUrl: string, accuracy: number, wpm: number) {
-    const current = loadLeaderboard();
-
-    current.push({
+  async function updateLeaderboard(initials: string, score: number, avatarUrl: string, accuracy: number, wpm: number) {
+    const entry = {
       initials,
       score,
       avatarUrl,
       timestamp: Date.now(),
       accuracy,
       wpm,
-    });
-
-    const top5 = current
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-
-    saveLeaderboard(top5);
+    };
+    await saveLeaderboardEntry(entry);
+    const latest = await fetchLeaderboard();
+    setLeaderboard(latest);
   }
 
   useEffect(() => {
@@ -111,16 +99,15 @@ export default function SinglePlayer() {
     }
     if (timeLeft === 0) {
       const finalWPM = Math.round((score / duration) * 60);
-      const finalAccuracy = Math.round((score / (score + (words.length - score))) * 100) || 0;
-
+      const finalAccuracy = Math.round((score / (score + (words.length - score))) * 100) || 0;  
       updateLeaderboard(userData.initials, score, userData.avatarUrl, finalWPM, finalAccuracy);
-      setLeaderboard(loadLeaderboard());
-    }
+    } 
   }, [timeLeft, gameStarted, score, userData.initials, userData.avatarUrl, words.length, duration]);
 
   useEffect(() => {
-    setLeaderboard(loadLeaderboard());
+    fetchLeaderboard().then(setLeaderboard);
   }, []);
+  
 
   const shuffle = (array: string[]) => {
     const result = [...array];
@@ -300,6 +287,20 @@ export default function SinglePlayer() {
       });
     }
   };
+
+  const fetchLeaderboard = async () => {
+    const res = await fetch("https://multisynq-backend-5c73bdaaee10.herokuapp.com/api/leaderboard");
+    return res.json();
+  };
+  
+  const saveLeaderboardEntry = async (entry: HighscoreEntry) => {
+    await fetch("https://multisynq-backend-5c73bdaaee10.herokuapp.com/api/leaderboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+  };
+  
 
   const topLeaderboard = useMemo(() => {
     const weighted = [...leaderboard].map(entry => ({
