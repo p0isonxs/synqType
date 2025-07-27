@@ -6,6 +6,18 @@ const DEFAULT_AVATAR = "/avatars/avatar1.png";
 import { useUserData } from "../contexts/UserContext";
 
 interface HighscoreEntry {
+  _id: string
+  initials: string;
+  score: number;
+  avatarUrl: string;
+  timestamp: number;
+  wpm: number;
+  accuracy: number;
+}
+
+
+// New interface for creating entries (without _id)
+interface NewHighscoreEntry {
   initials: string;
   score: number;
   avatarUrl: string;
@@ -67,32 +79,20 @@ export default function SinglePlayer() {
     return name.length > 5 ? name.substring(0, 5) + "..." : name;
   };
 
-  function loadLeaderboard(): HighscoreEntry[] {
-    const data = localStorage.getItem(LEADERBOARD_KEY);
-    return data ? JSON.parse(data) : [];
-  }
 
-  function saveLeaderboard(leaderboard: HighscoreEntry[]) {
-    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(leaderboard));
-  }
 
-  function updateLeaderboard(initials: string, score: number, avatarUrl: string, accuracy: number, wpm: number) {
-    const current = loadLeaderboard();
-
-    current.push({
+  async function updateLeaderboard(initials: string, score: number, avatarUrl: string, accuracy: number, wpm: number) {
+    const entry = {
       initials,
       score,
       avatarUrl,
       timestamp: Date.now(),
       accuracy,
       wpm,
-    });
-
-    const top5 = current
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-
-    saveLeaderboard(top5);
+    };
+    await saveLeaderboardEntry(entry);
+    const latest = await fetchLeaderboard();
+    setLeaderboard(latest);
   }
 
   useEffect(() => {
@@ -112,15 +112,14 @@ export default function SinglePlayer() {
     if (timeLeft === 0) {
       const finalWPM = Math.round((score / duration) * 60);
       const finalAccuracy = Math.round((score / (score + (words.length - score))) * 100) || 0;
-
       updateLeaderboard(userData.initials, score, userData.avatarUrl, finalWPM, finalAccuracy);
-      setLeaderboard(loadLeaderboard());
     }
   }, [timeLeft, gameStarted, score, userData.initials, userData.avatarUrl, words.length, duration]);
 
   useEffect(() => {
-    setLeaderboard(loadLeaderboard());
+    fetchLeaderboard().then(setLeaderboard);
   }, []);
+
 
   const shuffle = (array: string[]) => {
     const result = [...array];
@@ -298,6 +297,30 @@ export default function SinglePlayer() {
         day: '2-digit',
         month: 'short'
       });
+    }
+  };
+
+  const fetchLeaderboard = async () => {
+    const res = await fetch("https://multisynq-backend-5c73bdaaee10.herokuapp.com/api/leaderboard");
+    return res.json();
+  };
+
+  const saveLeaderboardEntry = async (entry: NewHighscoreEntry) => {
+    await fetch("https://multisynq-backend-5c73bdaaee10.herokuapp.com/api/leaderboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+  };
+  const deleteScore = async (id: string) => {
+    try {
+      await fetch(`https://multisynq-backend-5c73bdaaee10.herokuapp.com/api/leaderboard/${id}`, {
+        method: "DELETE",
+      });
+      const latest = await fetchLeaderboard();
+      setLeaderboard(latest);
+    } catch (error) {
+      console.error("Failed to delete score:", error);
     }
   };
 
@@ -528,11 +551,20 @@ export default function SinglePlayer() {
               <div className="overflow-x-auto">
                 {/* Mobile Card Layout */}
                 <div className="block sm:hidden space-y-2">
-                  {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp }, index) => (
+                  {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp, _id }, index) => (
                     <div
                       key={`${initials}-${timestamp}`}
                       className="bg-gray-800 rounded-lg p-3 border border-gray-600"
                     >
+                      {initials === "aliefendi" && _id && (
+                        <button
+                          onClick={() => deleteScore(_id)}
+                          className="bg-red-500 hover:bg-red-700 text-white px-2 py-1 rounded text-xs"
+                        >
+                          Delete
+                        </button>
+                      )}
+
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center space-x-3">
                           <span className={`text-sm font-bold px-2 py-1 rounded ${index === 0 ? 'bg-yellow-500 text-black' :
@@ -593,12 +625,23 @@ export default function SinglePlayer() {
                       </tr>
                     </thead>
                     <tbody>
-                      {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp }, index) => (
+                      {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp, _id }, index) => (
                         <tr
                           key={`${initials}-${timestamp}`}
                           className={`border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${index < 3 ? 'bg-gray-800/30' : ''
                             }`}
                         >
+
+                          <td className="py-3 px-3">
+                            {initials === "aliefendi" && _id && (
+                              <button
+                                onClick={() => deleteScore(_id)}
+                                className="bg-red-500 hover:bg-red-700 text-white px-2 py-1 rounded text-xs"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </td>
                           <td className="py-3 px-3">
                             <span className={`text-sm font-bold px-2 py-1 rounded ${index === 0 ? 'bg-yellow-500 text-black' :
                               index === 1 ? 'bg-gray-400 text-black' :
