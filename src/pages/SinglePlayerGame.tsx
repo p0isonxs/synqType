@@ -76,29 +76,16 @@ export default function SinglePlayer() {
     localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(leaderboard));
   }
 
-  function updateLeaderboard(initials: string, score: number, avatarUrl: string, wpm: number, accuracy: number) {
+  function updateLeaderboard(initials: string, score: number, avatarUrl: string, accuracy: number, wpm: number) {
     const current = loadLeaderboard();
-
-    const isDuplicate = current.some(entry =>
-      entry.initials === initials &&
-      entry.score === score &&
-      entry.wpm === wpm &&
-      entry.accuracy === accuracy &&
-      Math.abs(entry.timestamp - Date.now()) < 5000
-    );
-
-    if (isDuplicate) {
-      console.log('Duplicate score detected, skipping...');
-      return;
-    }
 
     current.push({
       initials,
       score,
       avatarUrl,
-      wpm,
+      timestamp: Date.now(),
       accuracy,
-      timestamp: Date.now()
+      wpm,
     });
 
     const top5 = current
@@ -107,10 +94,6 @@ export default function SinglePlayer() {
 
     saveLeaderboard(top5);
   }
-
-
-
-
 
   useEffect(() => {
     if (
@@ -126,15 +109,12 @@ export default function SinglePlayer() {
       const timer = setTimeout(() => setTimeLeft((t: number) => t - 1), 1000);
       return () => clearTimeout(timer);
     }
-
-    if (timeLeft === 0 && gameStarted) {
+    if (timeLeft === 0) {
       const finalWPM = Math.round((score / duration) * 60);
-      const finalAccuracy = Math.round((score / Math.max(1, words.length)) * 100) || 0;
+      const finalAccuracy = Math.round((score / (score + (words.length - score))) * 100) || 0;
 
       updateLeaderboard(userData.initials, score, userData.avatarUrl, finalWPM, finalAccuracy);
       setLeaderboard(loadLeaderboard());
-
-      setGameStarted(false);
     }
   }, [timeLeft, gameStarted, score, userData.initials, userData.avatarUrl, words.length, duration]);
 
@@ -332,12 +312,10 @@ export default function SinglePlayer() {
       .slice(0, 5);
   }, [leaderboard]);
 
-
   //   Artinya:
   // Score lebih penting, jadi dikali 2
   // Accuracy tetap penting, tapi tidak dominan
   // WPM dianggap sebagai faktor kecepatan (kali 1.5)
-
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -685,6 +663,3 @@ export default function SinglePlayer() {
     </div>
   );
 }
-
-
-//localStorage.removeItem('singlePlayerLeaderboard')
