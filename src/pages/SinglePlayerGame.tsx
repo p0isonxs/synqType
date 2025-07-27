@@ -1,12 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useLocation } from "react-router";
 import isEqual from "lodash.isequal";
 const DEFAULT_AVATAR = "/avatars/avatar1.png";
 import { useUserData } from "../contexts/UserContext";
 
-export default function SinglePlayer() {
+interface HighscoreEntry {
+  initials: string;
+  score: number;
+  avatarUrl: string;
+  timestamp: number;
+  wpm: number;
+  accuracy: number;
+}
 
+export default function SinglePlayer() {
   const location = useLocation();
   const { userData, updateUserData } = useUserData();
   const settings = location.state || userData.roomSettings;
@@ -47,25 +55,61 @@ export default function SinglePlayer() {
   const [timeLeft, setTimeLeft] = useState(duration);
   const [gameStarted, setGameStarted] = useState(false);
   const [chunkTransition, setChunkTransition] = useState(false);
-
-  const [singleHighscores, setSingleHighscores] = useState<
-    Record<string, number>
-  >(() => {
-    const saved = localStorage.getItem("singleHighscores");
-    return saved ? JSON.parse(saved) : {};
-  });
-
-  const [highscores, setHighscores] =
-    useState<Record<string, number>>(singleHighscores);
+  const [leaderboard, setLeaderboard] = useState<HighscoreEntry[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   const WORDS_PER_CHUNK = 20;
+  const LEADERBOARD_KEY = "singlePlayerLeaderboard";
 
   const getTruncatedName = (name: string) => {
     return name.length > 5 ? name.substring(0, 5) + "..." : name;
   };
+
+  function loadLeaderboard(): HighscoreEntry[] {
+    const data = localStorage.getItem(LEADERBOARD_KEY);
+    return data ? JSON.parse(data) : [];
+  }
+
+  function saveLeaderboard(leaderboard: HighscoreEntry[]) {
+    localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(leaderboard));
+  }
+
+  function updateLeaderboard(initials: string, score: number, avatarUrl: string, wpm: number, accuracy: number) {
+    const current = loadLeaderboard();
+
+    const isDuplicate = current.some(entry =>
+      entry.initials === initials &&
+      entry.score === score &&
+      entry.wpm === wpm &&
+      entry.accuracy === accuracy &&
+      Math.abs(entry.timestamp - Date.now()) < 5000
+    );
+
+    if (isDuplicate) {
+      console.log('Duplicate score detected, skipping...');
+      return;
+    }
+
+    current.push({
+      initials,
+      score,
+      avatarUrl,
+      wpm,
+      accuracy,
+      timestamp: Date.now()
+    });
+
+    const top5 = current
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+
+    saveLeaderboard(top5);
+  }
+
+
+
 
 
   useEffect(() => {
@@ -82,17 +126,21 @@ export default function SinglePlayer() {
       const timer = setTimeout(() => setTimeLeft((t: number) => t - 1), 1000);
       return () => clearTimeout(timer);
     }
-    if (timeLeft === 0) {
-      const old = highscores[userData.initials] || 0;
-      const updated = {
-        ...highscores,
-        [userData.initials]: Math.max(score, old),
-      };
-      setHighscores(updated);
-      setSingleHighscores(updated);
-      localStorage.setItem("singleHighscores", JSON.stringify(updated));
+
+    if (timeLeft === 0 && gameStarted) {
+      const finalWPM = Math.round((score / duration) * 60);
+      const finalAccuracy = Math.round((score / Math.max(1, words.length)) * 100) || 0;
+
+      updateLeaderboard(userData.initials, score, userData.avatarUrl, finalWPM, finalAccuracy);
+      setLeaderboard(loadLeaderboard());
+
+      setGameStarted(false);
     }
-}, [timeLeft, gameStarted, score, userData.initials]); // ✅ FIXED: Remove highscores dependency
+  }, [timeLeft, gameStarted, score, userData.initials, userData.avatarUrl, words.length, duration]);
+
+  useEffect(() => {
+    setLeaderboard(loadLeaderboard());
+  }, []);
 
   const shuffle = (array: string[]) => {
     const result = [...array];
@@ -111,10 +159,9 @@ export default function SinglePlayer() {
     setTimeLeft(duration);
     setGameStarted(true);
     setChunkTransition(false);
- setTimeout(() => {
-  inputRef.current?.focus();
-}, 50);
-
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
   };
 
   const getCurrentChunk = () => {
@@ -180,7 +227,6 @@ export default function SinglePlayer() {
     return Math.min((score / words.length) * 100, 100);
   };
 
-  // ✅ FIXED: Use cached avatarUrl
   const PlayerAvatar = ({ size = "w-14 h-14 sm:w-16 sm:h-16" }: { size?: string }) => (
     <div className={`${size} overflow-hidden`}>
       <img
@@ -200,24 +246,23 @@ export default function SinglePlayer() {
 
     return (
       <div
-        className={`text-xs sm:text-sm md:text-base lg:text-lg xl:text-xl font-mono leading-relaxed bg-gray-900 rounded-lg p-2 sm:p-3 md:p-4 border border-gray-700 min-h-[120px] sm:min-h-[140px] md:min-h-[160px] max-h-[200px] sm:max-h-[220px] md:max-h-[240px] overflow-hidden transition-opacity duration-300 select-none ${
-          chunkTransition ? "opacity-50" : "opacity-100"
-        }`}
+        className={`text-xs sm:text-sm md:text-base lg:text-lg xl:text-xl font-mono leading-relaxed bg-gray-900 rounded-lg p-2 sm:p-3 md:p-4 border border-gray-700 min-h-[120px] sm:min-h-[140px] md:min-h-[160px] max-h-[200px] sm:max-h-[220px] md:max-h-[240px] overflow-hidden transition-opacity duration-300 select-none ${chunkTransition ? "opacity-50" : "opacity-100"
+          }`}
       >
         <div className="flex flex-wrap gap-x-1 gap-y-1">
           {chunk.words.map((word, wordIndex) => (
             <span key={chunk.startIndex + wordIndex} className="inline-block">
               {wordIndex < relativeIndex
                 ? word.split("").map((letter, letterIndex) => (
-                    <span
-                      key={letterIndex}
-                      className="text-green-400 rounded-sm"
-                    >
-                      {letter}
-                    </span>
-                  ))
+                  <span
+                    key={letterIndex}
+                    className="text-green-400 rounded-sm"
+                  >
+                    {letter}
+                  </span>
+                ))
                 : wordIndex === relativeIndex
-                ? word.split("").map((letter, letterIndex) => {
+                  ? word.split("").map((letter, letterIndex) => {
                     const isTyped = letterIndex < input.length;
                     const isCorrect = isTyped && input[letterIndex] === letter;
                     const isIncorrect =
@@ -227,21 +272,20 @@ export default function SinglePlayer() {
                     return (
                       <span
                         key={letterIndex}
-                        className={`rounded-sm ${
-                          isCorrect
-                            ? "text-green-400"
-                            : isIncorrect
+                        className={`rounded-sm ${isCorrect
+                          ? "text-green-400"
+                          : isIncorrect
                             ? "text-red-400"
                             : isCurrent
-                            ? "text-white"
-                            : "text-gray-300"
-                        }`}
+                              ? "text-white"
+                              : "text-gray-300"
+                          }`}
                       >
                         {letter}
                       </span>
                     );
                   })
-                : word.split("").map((letter, letterIndex) => (
+                  : word.split("").map((letter, letterIndex) => (
                     <span key={letterIndex} className="text-gray-400">
                       {letter}
                     </span>
@@ -259,6 +303,42 @@ export default function SinglePlayer() {
     );
   };
 
+  const formatDate = (timestamp: number) => {
+    const date = new Date(timestamp);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short'
+      });
+    }
+  };
+
+  const topLeaderboard = useMemo(() => {
+    const weighted = [...leaderboard].map(entry => ({
+      ...entry,
+      compositeScore: entry.score * 2 + entry.accuracy * 1 + entry.wpm * 1.5,
+    }));
+
+    return weighted
+      .sort((a, b) => b.compositeScore - a.compositeScore)
+      .slice(0, 5);
+  }, [leaderboard]);
+
+
+  //   Artinya:
+  // Score lebih penting, jadi dikali 2
+  // Accuracy tetap penting, tapi tidak dominan
+  // WPM dianggap sebagai faktor kecepatan (kali 1.5)
+
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="flex justify-between items-center p-2 sm:p-3">
@@ -268,8 +348,8 @@ export default function SinglePlayer() {
         >
           ← Back
         </button>
-        <div className="text-gray-400 text-xs sm:text-sm">
-          Mode <span className="text-white font-mono">solo</span>
+        <div className="text-gray-400 text-xs sm:text-sm font-staatliches">
+          Mode <span className="text-white font-staatliches">solo</span>
         </div>
       </div>
 
@@ -278,8 +358,8 @@ export default function SinglePlayer() {
           <div className="relative mb-3 sm:mb-4">
             <div className="relative bg-gray-800 rounded-xl p-3 sm:p-4 md:p-5 border border-gray-700">
               <div className="absolute left-0 top-1/2 transform -translate-y-1/2 -translate-x-full pr-3 flex items-center">
-                <div className="text-xs sm:text-sm text-white font-semibold whitespace-nowrap">
-                {getTruncatedName(userData.initials)}
+                <div className="text-xs sm:text-sm text-white font-semibold whitespace-nowrap ">
+                  {getTruncatedName(userData.initials)}
                 </div>
               </div>
 
@@ -294,9 +374,8 @@ export default function SinglePlayer() {
                     {Array.from({ length: 8 }, (_, i) => (
                       <div
                         key={i}
-                        className={`${
-                          i % 2 === 0 ? "bg-white" : "bg-black"
-                        } border border-gray-400`}
+                        className={`${i % 2 === 0 ? "bg-white" : "bg-black"
+                          } border border-gray-400`}
                       ></div>
                     ))}
                   </div>
@@ -316,7 +395,7 @@ export default function SinglePlayer() {
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-3 mb-3">
             <div className="bg-gray-900 rounded-lg p-2 text-center border border-gray-700">
-              <div className="text-xs text-gray-400 mb-1">Time</div>
+              <div className="text-xs text-gray-400 mb-1 font-staatliches">Time</div>
               <div
                 className={`text-base sm:text-lg font-bold ${getTimeColor()}`}
               >
@@ -324,11 +403,11 @@ export default function SinglePlayer() {
               </div>
             </div>
             <div className="bg-gray-900 rounded-lg p-2 text-center border border-gray-700">
-              <div className="text-xs text-gray-400 mb-1">Score</div>
+              <div className="text-xs text-gray-400 mb-1 font-staatliches">Score</div>
               <div className="text-base sm:text-lg font-bold">{score}</div>
             </div>
             <div className="bg-gray-900 rounded-lg p-2 text-center border border-gray-700 col-span-2 sm:col-span-1">
-              <div className="text-xs text-gray-400 mb-1">WPM</div>
+              <div className="text-xs text-gray-400 mb-1 font-staatliches">WPM</div>
               <div className="text-base sm:text-lg font-bold">
                 {gameStarted
                   ? Math.round((score / Math.max(1, duration - timeLeft)) * 60)
@@ -348,25 +427,25 @@ export default function SinglePlayer() {
               {timeLeft === 0 ? (
                 <div className="space-y-3 bg-gray-900 rounded-lg p-6 border border-gray-700">
                   <div className="text-3xl mb-2"></div>
-                  <h2 className="text-xl font-bold text-white mb-2">
-                    {score === words.length ? "🏁 Finish Line!" : "Game Over!"}
+                  <h2 className="text-xl font-bold text-white mb-2 font-staatliches">
+                    {score === words.length ? "Finish Line!" : "Game Over!"}
                   </h2>
 
-                  <div className="text-lg mb-3">
-                    Final Score: <span className="font-bold">{score}</span>{" "}
+                  <div className="text-lg mb-3 font-staatliches">
+                    Final Score: <span className="font-bold font-staatliches">{score}</span>{" "}
                     words
                   </div>
 
                   <div className="grid grid-cols-3 gap-3 mb-3 text-sm">
                     <div className="text-gray-400">
-                      <div>WPM</div>
-                      <div className="text-white font-bold">
+                      <div className="font-staatliches">WPM</div>
+                      <div className="text-white font-bold font-staatliches">
                         {Math.round((score / duration) * 60)}
                       </div>
                     </div>
                     <div className="text-gray-400">
-                      <div>Accuracy</div>
-                      <div className="text-white font-bold">
+                      <div className="font-staatliches">Accuracy</div>
+                      <div className="text-white font-bold font-staatliches">
                         {Math.round(
                           (score / (score + (words.length - score))) * 100
                         ) || 0}
@@ -374,8 +453,8 @@ export default function SinglePlayer() {
                       </div>
                     </div>
                     <div className="text-gray-400">
-                      <div>Progress</div>
-                      <div className="text-white font-bold">
+                      <div className="font-staatliches">Progress</div>
+                      <div className="text-white font-bold font-staatliches">
                         {Math.round((index / words.length) * 100) || 0}%
                       </div>
                     </div>
@@ -383,36 +462,36 @@ export default function SinglePlayer() {
 
                   <button
                     onClick={startGame}
-                    className="px-5 py-2 bg-white hover:bg-gray-200 text-black font-bold rounded-lg text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+                    className="px-5 py-2 bg-white hover:bg-gray-200 text-black font-bold rounded-lg text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 font-staatliches"
                   >
                     Play Again
                   </button>
                 </div>
               ) : (
                 <div className="space-y-3 bg-gray-900 rounded-lg p-3 sm:p-4 md:p-6 border border-gray-700">
-                  <h2 className="text-lg sm:text-xl font-bold text-white mb-2">
+                  <h2 className="text-lg sm:text-xl font-bold text-white mb-2 font-staatliches">
                     Ready to Race?
                   </h2>
-                  <p className="text-gray-400 mb-3 text-sm">
+                  <p className="text-gray-400 mb-3 text-sm font-staatliches">
                     Solo typing challenge with {settings.sentenceLength} words
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mb-3 text-xs sm:text-sm">
                     <div className="text-gray-400">
-                      <div>Theme</div>
-                      <div className="text-white font-semibold">
+                      <div className="font-staatliches">Theme</div>
+                      <div className="text-white font-semibold font-staatliches">
                         {settings.theme || "Default"}
                       </div>
                     </div>
                     <div className="text-gray-400">
-                      <div>Max Length</div>
-                      <div className="text-white font-semibold">
+                      <div className="font-staatliches">Max Length</div>
+                      <div className="text-white font-semibold font-staatliches">
                         {settings.sentenceLength}
                       </div>
                     </div>
                     <div className="text-gray-400">
-                      <div>Time Limit</div>
-                      <div className="text-white font-semibold">
+                      <div className="font-staatliches">Time Limit</div>
+                      <div className="text-white font-semibold font-staatliches">
                         {duration}s
                       </div>
                     </div>
@@ -420,7 +499,7 @@ export default function SinglePlayer() {
 
                   <button
                     onClick={startGame}
-                    className="px-4 sm:px-5 py-2 bg-white hover:bg-gray-200 text-black font-bold rounded-lg text-sm sm:text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+                    className="px-4 sm:px-5 py-2 bg-white hover:bg-gray-200 text-black font-bold rounded-lg text-sm sm:text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 font-staatliches"
                   >
                     Start Race
                   </button>
@@ -434,7 +513,7 @@ export default function SinglePlayer() {
       {gameStarted && timeLeft > 0 && (
         <div className="px-2 sm:px-3 pb-3">
           <div className="max-w-5xl mx-auto">
-            <label className="block text-gray-400 text-xs mb-2">
+            <label className="block text-gray-400 text-xs mb-2 font-staatliches">
               Type here
             </label>
             <input
@@ -447,14 +526,13 @@ export default function SinglePlayer() {
                   handleSubmit();
                 }
               }}
-              className={`w-full px-3 py-2 text-sm sm:text-base bg-white rounded-lg text-black focus:outline-none transition-all duration-200 ${
-                error
-                  ? "ring-2 ring-red-500"
-                  : "focus:ring-2 focus:ring-blue-500"
-              }`}
+              className={`w-full px-3 py-2 text-sm sm:text-base bg-white rounded-lg text-black focus:outline-none transition-all duration-200 ${error
+                ? "ring-2 ring-red-500"
+                : "focus:ring-2 focus:ring-blue-500"
+                }`}
               placeholder={words[index] || "Start typing..."}
             />
-            <div className="mt-2 text-center text-gray-400 text-xs">
+            <div className="mt-2 text-center text-gray-400 text-xs font-staatliches">
               Press space or enter to submit
             </div>
           </div>
@@ -463,48 +541,150 @@ export default function SinglePlayer() {
 
       {(!gameStarted || timeLeft === 0) && (
         <div className="px-2 sm:px-3 pb-4 sm:pb-6">
-          <div className="bg-gray-900 rounded-lg p-3 border border-gray-700 max-w-5xl mx-auto">
-            <h3 className="text-base sm:text-lg font-bold text-white mb-2 text-center">
-              Your Highest Scores
+          <div className="bg-gray-900 rounded-lg p-3 sm:p-4 border border-gray-700 max-w-5xl mx-auto">
+            <h3 className="text-base sm:text-lg font-bold text-white mb-3 sm:mb-4 text-center font-staatliches">
+              Leaderboard
             </h3>
-            <div className="space-y-2">
-              {Object.entries(highscores).length > 0 ? (
-                Object.entries(highscores)
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 5)
-                  .map(([name, score], index) => (
+
+            {leaderboard.length > 0 ? (
+              <div className="overflow-x-auto">
+                {/* Mobile Card Layout */}
+                <div className="block sm:hidden space-y-2">
+                  {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp }, index) => (
                     <div
-                      key={name}
-                      className="flex justify-between items-center p-2 bg-gray-800 rounded-lg"
+                      key={`${initials}-${timestamp}`}
+                      className="bg-gray-800 rounded-lg p-3 border border-gray-600"
                     >
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm">
-                          {index === 0
-                            ? "🥇"
-                            : index === 1
-                            ? "🥈"
-                            : index === 2
-                            ? "🥉"
-                            : "🏆"}
-                        </span>
-                        <span className="font-semibold text-white text-xs sm:text-sm">
-                          {getTruncatedName(name)}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center space-x-3">
+                          <span className={`text-sm font-bold px-2 py-1 rounded ${index === 0 ? 'bg-yellow-500 text-black' :
+                            index === 1 ? 'bg-gray-400 text-black' :
+                              index === 2 ? 'bg-orange-600 text-white' :
+                                'bg-gray-600 text-white'
+                            }`}>
+                            #{index + 1}
+                          </span>
+                          <div className="w-10 h-10 overflow-hidden rounded-full border-2 border-gray-600">
+                            <img
+                              src={avatarUrl}
+                              alt={`${initials} avatar`}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.src = DEFAULT_AVATAR;
+                              }}
+                            />
+                          </div>
+                          <span className="font-semibold text-white font-staatliches">
+                            {getTruncatedName(initials)}
+                          </span>
+                        </div>
+                        <span className="text-xs text-gray-400 font-staatliches">
+                          {formatDate(timestamp)}
                         </span>
                       </div>
-                      <span className="font-bold text-xs sm:text-sm">
-                        {score} words
-                      </span>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="text-center">
+                          <div className="text-gray-400 font-staatliches">Score</div>
+                          <div className="text-white font-bold font-staatliches">{score}</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-gray-400 font-staatliches">WPM</div>
+                          <div className="text-white font-bold font-staatliches">{wpm}</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-gray-400 font-staatliches">Accuracy</div>
+                          <div className="text-white font-bold font-staatliches">{accuracy}%</div>
+                        </div>
+                      </div>
                     </div>
-                  ))
-              ) : (
-                <div className="text-center text-gray-400 py-3 text-xs sm:text-sm">
-                  No scores yet. Be the first to play!
+                  ))}
                 </div>
-              )}
-            </div>
+
+                {/* Desktop Table Layout */}
+                <div className="hidden sm:block">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-700">
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-400 font-staatliches">Rank</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-400 font-staatliches">Avatar</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-400 font-staatliches">Name</th>
+                        <th className="text-center py-2 px-3 text-xs font-semibold text-gray-400 font-staatliches">Score</th>
+                        <th className="text-center py-2 px-3 text-xs font-semibold text-gray-400 font-staatliches">WPM</th>
+                        <th className="text-center py-2 px-3 text-xs font-semibold text-gray-400 font-staatliches">Accuracy</th>
+                        <th className="text-center py-2 px-3 text-xs font-semibold text-gray-400 font-staatliches">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp }, index) => (
+                        <tr
+                          key={`${initials}-${timestamp}`}
+                          className={`border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${index < 3 ? 'bg-gray-800/30' : ''
+                            }`}
+                        >
+                          <td className="py-3 px-3">
+                            <span className={`text-sm font-bold px-2 py-1 rounded ${index === 0 ? 'bg-yellow-500 text-black' :
+                              index === 1 ? 'bg-gray-400 text-black' :
+                                index === 2 ? 'bg-orange-600 text-white' :
+                                  'bg-gray-600 text-white'
+                              }`}>
+                              #{index + 1}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="w-8 h-8 overflow-hidden rounded-full border-2 border-gray-600">
+                              <img
+                                src={avatarUrl}
+                                alt={`${initials} avatar`}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.src = DEFAULT_AVATAR;
+                                }}
+                              />
+                            </div>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="font-semibold text-white text-sm font-staatliches">
+                              {getTruncatedName(initials)}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className="font-bold text-white text-sm font-staatliches">
+                              {score}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className="font-bold text-white text-sm font-staatliches">
+                              {wpm}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className="font-bold text-white text-sm font-staatliches">
+                              {accuracy}%
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className="text-xs text-gray-400 font-staatliches">
+                              {formatDate(timestamp)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-gray-400 py-6 text-sm font-staatliches">
+                <div>No scores yet. Be the first to play!</div>
+              </div>
+            )}
           </div>
         </div>
       )}
+
     </div>
   );
 }
+
+
+//localStorage.removeItem('singlePlayerLeaderboard')
