@@ -556,15 +556,7 @@ export default function SinglePlayer() {
                       key={`${initials}-${timestamp}`}
                       className="bg-gray-800 rounded-lg p-3 border border-gray-600"
                     >
-                      {initials === "aliefendi" && _id && (
-                        <button
-                          onClick={() => deleteScore(_id)}
-                          className="bg-red-500 hover:bg-red-700 text-white px-2 py-1 rounded text-xs"
-                        >
-                          Delete
-                        </button>
-                      )}
-
+                   
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center space-x-3">
                           <span className={`text-sm font-bold px-2 py-1 rounded ${index === 0 ? 'bg-yellow-500 text-black' :
@@ -632,16 +624,7 @@ export default function SinglePlayer() {
                             }`}
                         >
 
-                          <td className="py-3 px-3">
-                            {initials === "aliefendi" && _id && (
-                              <button
-                                onClick={() => deleteScore(_id)}
-                                className="bg-red-500 hover:bg-red-700 text-white px-2 py-1 rounded text-xs"
-                              >
-                                Delete
-                              </button>
-                            )}
-                          </td>
+                      
                           <td className="py-3 px-3">
                             <span className={`text-sm font-bold px-2 py-1 rounded ${index === 0 ? 'bg-yellow-500 text-black' :
                               index === 1 ? 'bg-gray-400 text-black' :
