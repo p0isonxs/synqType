@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useLocation } from "react-router";
 import isEqual from "lodash.isequal";
@@ -64,6 +64,7 @@ export default function SinglePlayer() {
   const [input, setInput] = useState("");
   const [error, setError] = useState(false);
   const [score, setScore] = useState(0);
+  const [attempts, setAttempts] = useState(0);
   const [timeLeft, setTimeLeft] = useState(duration);
   const [gameStarted, setGameStarted] = useState(false);
   const [chunkTransition, setChunkTransition] = useState(false);
@@ -73,15 +74,16 @@ export default function SinglePlayer() {
   const navigate = useNavigate();
 
   const WORDS_PER_CHUNK = 20;
-  const LEADERBOARD_KEY = "singlePlayerLeaderboard";
-
   const getTruncatedName = (name: string) => {
     return name.length > 5 ? name.substring(0, 5) + "..." : name;
   };
 
+  const calculateAccuracy = useCallback((correctWords: number, totalAttempts: number) => {
+    if (totalAttempts === 0) return 100;
+    return Math.round((correctWords / totalAttempts) * 100);
+  }, []);
 
-
-  async function updateLeaderboard(initials: string, score: number, avatarUrl: string, accuracy: number, wpm: number) {
+  async function updateLeaderboard(initials: string, score: number, avatarUrl: string, wpm: number, accuracy: number) {
     const entry = {
       initials,
       score,
@@ -102,7 +104,7 @@ export default function SinglePlayer() {
     ) {
       updateUserData({ roomSettings: location.state });
     }
-  }, [location.state, userData.roomSettings]);
+  }, [location.state, updateUserData, userData.roomSettings]);
 
   useEffect(() => {
     if (gameStarted && timeLeft > 0) {
@@ -111,10 +113,10 @@ export default function SinglePlayer() {
     }
     if (timeLeft === 0) {
       const finalWPM = Math.round((score / duration) * 60);
-      const finalAccuracy = Math.round((score / (score + (words.length - score))) * 100) || 0;
-      updateLeaderboard(userData.initials, score, userData.avatarUrl, finalWPM, finalAccuracy);
+      const finalAccuracy = calculateAccuracy(score, attempts);
+      void updateLeaderboard(userData.initials, score, userData.avatarUrl, finalWPM, finalAccuracy);
     }
-  }, [timeLeft, gameStarted, score, userData.initials, userData.avatarUrl, words.length, duration]);
+  }, [attempts, calculateAccuracy, duration, gameStarted, score, timeLeft, userData.initials, userData.avatarUrl, updateLeaderboard]);
 
   useEffect(() => {
     fetchLeaderboard().then(setLeaderboard);
@@ -134,6 +136,7 @@ export default function SinglePlayer() {
     setIndex(0);
     setInput("");
     setScore(0);
+    setAttempts(0);
     setWords(shuffle(wordPool));
     setTimeLeft(duration);
     setGameStarted(true);
@@ -156,6 +159,7 @@ export default function SinglePlayer() {
   const handleSubmit = () => {
     if (!input.trim()) return;
 
+    setAttempts((currentAttempts) => currentAttempts + 1);
     const correct = input.trim() === words[index];
     new Audio(correct ? "/uwu-sound-119010.mp3" : "/fart-83471.mp3").play();
 
@@ -312,18 +316,6 @@ export default function SinglePlayer() {
       body: JSON.stringify(entry),
     });
   };
-  const deleteScore = async (id: string) => {
-    try {
-      await fetch(`https://multisynq-backend-5c73bdaaee10.herokuapp.com/api/leaderboard/${id}`, {
-        method: "DELETE",
-      });
-      const latest = await fetchLeaderboard();
-      setLeaderboard(latest);
-    } catch (error) {
-      console.error("Failed to delete score:", error);
-    }
-  };
-
   const topLeaderboard = useMemo(() => {
     const weighted = [...leaderboard].map(entry => ({
       ...entry,
@@ -447,9 +439,7 @@ export default function SinglePlayer() {
                     <div className="text-gray-400">
                       <div className="font-staatliches">Accuracy</div>
                       <div className="text-white font-bold font-staatliches">
-                        {Math.round(
-                          (score / (score + (words.length - score))) * 100
-                        ) || 0}
+                        {calculateAccuracy(score, attempts)}
                         %
                       </div>
                     </div>
@@ -551,7 +541,7 @@ export default function SinglePlayer() {
               <div className="overflow-x-auto">
                 {/* Mobile Card Layout */}
                 <div className="block sm:hidden space-y-2">
-                  {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp, _id }, index) => (
+                  {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp }, index) => (
                     <div
                       key={`${initials}-${timestamp}`}
                       className="bg-gray-800 rounded-lg p-3 border border-gray-600"
@@ -617,7 +607,7 @@ export default function SinglePlayer() {
                       </tr>
                     </thead>
                     <tbody>
-                      {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp, _id }, index) => (
+                      {topLeaderboard.map(({ initials, score, avatarUrl, wpm, accuracy, timestamp }, index) => (
                         <tr
                           key={`${initials}-${timestamp}`}
                           className={`border-b border-gray-800 hover:bg-gray-800/50 transition-colors ${index < 3 ? 'bg-gray-800/30' : ''

@@ -161,7 +161,6 @@ export const useTypingPaymentStore = create<TypingPaymentState>()(
       if (address && get().roomInfo) {
         // ✅ Update player-specific permissions
         const roomInfo = get().roomInfo!;
-        const isHost = roomInfo.host.toLowerCase() === address.toLowerCase();
         const isWinner = roomInfo.winner.toLowerCase() === address.toLowerCase();
         const playerStatus = get().allPlayers[address] || get().playerStatus;
         

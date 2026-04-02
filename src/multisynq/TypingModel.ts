@@ -25,6 +25,19 @@ interface TypingModelOptions {
   roomSettings?: Partial<RoomSettings>;
 }
 
+interface SyncedGameState {
+  started?: boolean;
+  timeLeft?: number;
+  countdownActive?: boolean;
+  countdown?: number;
+  words?: string[];
+  theme?: string;
+  sentenceLength?: number;
+  timeLimit?: number;
+  maxPlayers?: number;
+  roomSettingsInitialized?: boolean;
+}
+
 export class TypingModel extends ReactModel {
   words!: string[];
   players!: Map<string, PlayerModel>;
@@ -200,7 +213,7 @@ export class TypingModel extends ReactModel {
     this.throttledViewUpdate();
   }
 
-  checkAndInitializeSettings(roomSettings?: any): void {
+  checkAndInitializeSettings(roomSettings?: Record<string, unknown>): void {
     if (!this.roomSettingsInitialized) {
       if (roomSettings && Object.keys(roomSettings).length > 0) {
         this.publish("room", "initialize-settings", roomSettings);
@@ -358,8 +371,6 @@ export class TypingModel extends ReactModel {
     // ✅ THROTTLE: Prevent spam saving
   
 
-    this.lastSaveTime = now;
-
     const gameState = {
       started: this.started,
       timeLeft: this.timeLeft,
@@ -380,22 +391,12 @@ export class TypingModel extends ReactModel {
   }
 
   // ✅ ADD: Throttling variables at class level
-  private lastSaveTime = 0;
-  private saveThrottleMs = 2000;
   private lastStateRequestTime: Record<string, number> = {};
 
-  restoreGameState(state: any): void {
+  restoreGameState(state: SyncedGameState | undefined): void {
     if (!state) return;
 
     // ✅ CRITICAL: Add detailed state comparison to prevent loops
-    const currentState = {
-      started: this.started,
-      timeLeft: this.timeLeft,
-      countdownActive: this.countdownActive,
-      countdown: this.countdown,
-      wordsLength: this.words.length
-    };
-
     const newState = {
       started: state.started || false,
       timeLeft: state.timeLeft || this.timeLimit,
@@ -405,14 +406,6 @@ export class TypingModel extends ReactModel {
     };
 
     // ✅ PREVENT LOOP: Only restore if there's actual meaningful difference
-    const hasSignificantChange =
-      currentState.started !== newState.started ||
-      Math.abs(currentState.timeLeft - newState.timeLeft) > 1 ||
-      currentState.countdownActive !== newState.countdownActive ||
-      currentState.wordsLength !== newState.wordsLength;
-
-  
-
     this.started = newState.started;
     this.timeLeft = newState.timeLeft;
     this.countdownActive = newState.countdownActive;

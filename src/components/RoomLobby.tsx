@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   useReactModelRoot,
-  useSession,
   useDetachCallback,
   usePublish,
   useSubscribe,
@@ -10,13 +9,14 @@ import {
   useLeaveSession,
 } from "@multisynq/react";
 import { TypingModel } from "../multisynq/TypingModel";
+import type { PlayerModel } from "../multisynq/PlayerModel";
 import { useUserData } from "../contexts/UserContext";
 import { useWeb3 } from "../contexts/Web3Context";
 import { useOptimizedBettingContract } from "../hooks/useBettingContract";
 import BetConfirmationModal from "./BetConfirmationModal";
 import toast from "react-hot-toast";
 import { SendIcon } from "lucide-react";
-import { ChatMessage } from "../../type/global";
+import type { ChatMessage } from "../../type/global";
 import { getNetworkInfo } from "../config/bettingContract";
 const DEFAULT_AVATAR = "/avatars/avatar1.png";
 
@@ -34,7 +34,7 @@ export default function OptimizedRoomLobby() {
 
   const { userData } = useUserData();
 
-  const roomModel = model as any;
+  const roomModel = model as (TypingModel & { enableBetting?: boolean }) | null;
   const bettingEnabled = roomModel?.enableBetting;
 
   const {
@@ -43,9 +43,10 @@ export default function OptimizedRoomLobby() {
     isPlayer: isBettingPlayer,
     canJoin,
     joinRoom,
+    startGameOnChain,
+    gameCanStart,
     isLoading: isBettingLoading,
     hasOptimizedFlow,
-    totalTransactionsNeeded
   } = useOptimizedBettingContract(
     code || "",
     bettingEnabled && isConnected
@@ -55,6 +56,7 @@ export default function OptimizedRoomLobby() {
   const initsSentRef = useRef(false);
   const settingsInitializedRef = useRef(false);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const onChainStartPublishedRef = useRef(false);
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [currentMessage, setCurrentMessage] = useState("");
@@ -73,8 +75,13 @@ export default function OptimizedRoomLobby() {
     initials,
   ]);
   const sendAvatar = usePublish<string>((url) => [viewId!, "set-avatar", url]);
- 
-  const initializeRoomSettings = usePublish<any>((settings) => [
+  const sendWalletAddress = usePublish<`0x${string}`>((wallet) => [
+    viewId!,
+    "set-wallet",
+    wallet,
+  ]);
+
+  const initializeRoomSettings = usePublish<Record<string, unknown>>((settings) => [
     "room",
     "initialize-settings",
     settings
@@ -119,10 +126,7 @@ export default function OptimizedRoomLobby() {
     if (!bettingEnabled) {
       return players.length >= 2;
     }
-    const allPlayersJoined = roomData?.playerCount === players.length;
-    const maxPlayersFromSettings = model?.maxPlayers || 2;
-    const reachedMaxCapacity = players.length >= maxPlayersFromSettings;
-    return reachedMaxCapacity && allPlayersJoined;
+    return Boolean(gameCanStart && roomData?.playerCount === players.length);
   };
 
   const handleStart = async () => {
@@ -138,6 +142,11 @@ export default function OptimizedRoomLobby() {
     }
 
     try {
+      if (bettingEnabled) {
+        await startGameOnChain();
+        return;
+      }
+
       toast.success("Starting typing challenge...");
       sendStart();
     } catch (error) {
@@ -155,9 +164,10 @@ export default function OptimizedRoomLobby() {
     try {
       await joinRoom(roomData.betAmount);
       toast.success('Joined betting pool!');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Manual bet error:', error);
-      toast.error(error.message || "Failed to join betting pool");
+      const message = error instanceof Error ? error.message : "Failed to join betting pool";
+      toast.error(message);
     }
   };
 
@@ -173,7 +183,7 @@ export default function OptimizedRoomLobby() {
     return "unknown";
   };
 
-  const BettingStatusIndicator = ({ playerId, player }: { playerId: string, player: any }) => {
+  const BettingStatusIndicator = ({ playerId }: { playerId: string }) => {
     if (!bettingEnabled) return null;
 
     const status = getPlayerBettingStatus(playerId);
@@ -203,35 +213,6 @@ export default function OptimizedRoomLobby() {
         )}
       </div>
     );
-  };
-
-  const getStartButtonMessage = () => {
-    const maxPlayersFromSettings = model?.maxPlayers || 2;
-
-    if (players.length < 2) {
-      return "Need More Players (Min 2)";
-    }
-
-    if (bettingEnabled) {
-      if (!roomData) {
-        return "Loading Room Data";
-      }
-
-      const playersInBettingPool = roomData.playerCount;
-      const playersInLobby = players.length;
-
-      if (playersInLobby < maxPlayersFromSettings) {
-        const playersNeeded = maxPlayersFromSettings - playersInLobby;
-        return `Waiting for ${playersNeeded} More Player${playersNeeded === 1 ? '' : 's'} (${playersInLobby}/${maxPlayersFromSettings})`;
-      } else if (playersInBettingPool < playersInLobby) {
-        const betsNeeded = playersInLobby - playersInBettingPool;
-        return `Waiting for ${betsNeeded} Player${betsNeeded === 1 ? '' : 's'} to Bet`;
-      } else {
-        return `Start Typing Challenge (${playersInLobby}/${maxPlayersFromSettings} Ready)`;
-      }
-    }
-
-    return `Start Game (${players.length}/${maxPlayersFromSettings})`;
   };
 
   const handleChatMessage = useCallback((message: ChatMessage) => {
@@ -283,6 +264,12 @@ export default function OptimizedRoomLobby() {
   }, [model, viewId, sendInitials, sendAvatar, userData.initials, userData.avatarUrl]);
 
   useEffect(() => {
+    if (model && viewId && address) {
+      sendWalletAddress(address);
+    }
+  }, [address, model, sendWalletAddress, viewId]);
+
+  useEffect(() => {
     if (model?.chatMessages && model.chatMessages.length !== chatMessages.length) {
       setChatMessages(model.chatMessages);
     }
@@ -305,21 +292,44 @@ export default function OptimizedRoomLobby() {
     }
   }, [model?.countdownActive, code, navigate]);
 
-  const getPlayerAvatar = useCallback((playerId: string, player: any) => {
+  useEffect(() => {
+    if (!bettingEnabled || !isHost || !roomData?.gameStarted || !model) {
+      if (!roomData?.gameStarted) {
+        onChainStartPublishedRef.current = false;
+      }
+      return;
+    }
+
+    if (onChainStartPublishedRef.current || model.started || model.countdownActive) {
+      return;
+    }
+
+    onChainStartPublishedRef.current = true;
+    toast.success("On-chain room started. Syncing countdown...");
+    sendStart();
+  }, [
+    bettingEnabled,
+    isHost,
+    model,
+    roomData?.gameStarted,
+    sendStart,
+  ]);
+
+  const getPlayerAvatar = useCallback((playerId: string, player: PlayerModel) => {
     if (playerId === viewId) {
       return userData.avatarUrl;
     }
     return player.avatarUrl || DEFAULT_AVATAR;
   }, [viewId, userData.avatarUrl]);
 
-  const getPlayerName = useCallback((playerId: string, player: any) => {
+  const getPlayerName = useCallback((playerId: string, player: PlayerModel) => {
     if (playerId === viewId) {
       return userData.initials || "You";
     }
     return player.initials || `Guest_${playerId.substring(0, 6)}`;
   }, [viewId, userData.initials]);
 
-  const handleSendMessage = useCallback((e: React.FormEvent) => {
+  const handleSendMessage = useCallback((e: FormEvent) => {
     e.preventDefault();
     if (!currentMessage.trim() || !viewId) return;
 
@@ -477,7 +487,7 @@ export default function OptimizedRoomLobby() {
                           </span>
                         )}
                       </div>
-                      <BettingStatusIndicator playerId={id} player={player} />
+                      <BettingStatusIndicator playerId={id} />
                     </div>
                   </div>
                 </div>

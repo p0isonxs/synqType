@@ -1,30 +1,33 @@
+import { TypingModel } from "./TypingModel";
 
-import { TypingModel } from './TypingModel';
+type RoomTypingSettings = {
+  sentenceLength?: number;
+  timeLimit?: number;
+  maxPlayers?: number;
+  theme?: string;
+  words?: string[];
+  enableBetting?: boolean;
+  betAmount?: string;
+  contractAddress?: string;
+};
 
 export class RoomTypingModel extends TypingModel {
-  private settingsInitialized = false;    
-  // ✅ NEW: Add betting properties to class
+  private settingsInitialized = false;
   public enableBetting?: boolean;
   public betAmount?: string;
   public contractAddress?: string;
 
-  // ✅ Static approach for room settings
-  static roomSettings: any = null;
+  static roomSettings: RoomTypingSettings | null = null;
 
-  static setRoomSettings(settings: any): void {
+  static setRoomSettings(settings: RoomTypingSettings): void {
     RoomTypingModel.roomSettings = settings;
   }
 
-  init(options: any = {}): void {
-    // ✅ CRITICAL: Subscribe FIRST, before super.init
+  init(options: Record<string, unknown> = {}): void {
     this.subscribe("room", "sync-settings", this.syncRoomSettings);
-    
-    // ✅ CRITICAL: Add broadcast listener for ALL instances
     this.subscribe("room", "broadcast-settings", this.receiveBroadcastSettings);
 
     super.init(options);
-
-    // ✅ Wait for model to be fully initialized before setting up
     this.future(100).setupRoomSettings();
   }
 
@@ -33,98 +36,68 @@ export class RoomTypingModel extends TypingModel {
       return;
     }
 
-    let roomSettings = {};
-
     if (RoomTypingModel.roomSettings) {
-      // HOST SETUP
-      roomSettings = RoomTypingModel.roomSettings;
-      this.applyRoomSettings(roomSettings);
+      this.applyRoomSettings(RoomTypingModel.roomSettings);
       this.settingsInitialized = true;
-
-      
-      // ✅ CRITICAL: Broadcast with different channel name
-      this.future(1000).broadcastRoomSettings(roomSettings);
-
-    } else {
-      // GUEST SETUP - Don't initialize, wait for broadcast
-      roomSettings = {
-        sentenceLength: 30,
-        timeLimit: 60,
-        maxPlayers: 4,
-        theme: 'random',
-        words: [],
-        enableBetting: false,
-        betAmount: undefined,
-        contractAddress: undefined
-      };
-      this.applyRoomSettings(roomSettings);
+      this.future(1000).broadcastRoomSettings(RoomTypingModel.roomSettings);
+      return;
     }
+
+    this.applyRoomSettings({
+      sentenceLength: 30,
+      timeLimit: 60,
+      maxPlayers: 4,
+      theme: "random",
+      words: [],
+      enableBetting: false,
+      betAmount: undefined,
+      contractAddress: undefined,
+    });
   }
 
-  // ✅ CRITICAL: Use different broadcast method
-  broadcastRoomSettings(settings: any): void {
-    
-    // ✅ Use different channel for broadcast
+  broadcastRoomSettings(settings: RoomTypingSettings): void {
     this.publish("room", "broadcast-settings", settings);
     this.publish("view", "update");
   }
 
-  // ✅ NEW: Separate method for receiving broadcasts  
-  receiveBroadcastSettings(settings: any): void {
-    // ✅ CRITICAL: Only guests should receive broadcasts
-    const isHost = !!RoomTypingModel.roomSettings;
-    
-    if (isHost) {
+  receiveBroadcastSettings(settings: RoomTypingSettings): void {
+    const isHost = Boolean(RoomTypingModel.roomSettings);
+    if (isHost || !settings) {
       return;
     }
 
-    if (!settings) {
-      console.log(' No settings in broadcast');
-      return;
-    }
-
-    // Apply settings to guest
-    this.theme = settings.theme;
-    this.sentenceLength = settings.sentenceLength;
-    this.timeLimit = settings.timeLimit;
-    this.maxPlayers = settings.maxPlayers;
-    this.words = [...settings.words];
-
-    // ✅ CRITICAL: Apply betting fields
+    this.theme = settings.theme ?? this.theme;
+    this.sentenceLength = settings.sentenceLength ?? this.sentenceLength;
+    this.timeLimit = settings.timeLimit ?? this.timeLimit;
+    this.maxPlayers = settings.maxPlayers ?? this.maxPlayers;
+    this.words = settings.words ? [...settings.words] : this.words;
     this.enableBetting = settings.enableBetting;
     this.betAmount = settings.betAmount;
     this.contractAddress = settings.contractAddress;
-
-    this.timeLeft = settings.timeLimit;
+    this.timeLeft = this.timeLimit;
     this.settingsInitialized = true;
 
     this.publish("view", "update");
   }
 
-  // ✅ Keep old method for compatibility
-  syncRoomSettings(settings: any): void {
-    // This method is kept for backward compatibility but may not be used
-  }
+  syncRoomSettings(): void {}
 
-  // ✅ Enhanced: Re-broadcast when new player joins
   handleViewJoin(viewId: string): void {
     super.handleViewJoin(viewId);
 
-    const isHost = !!RoomTypingModel.roomSettings;
-    
-    if (isHost && this.players.size > 1) {
+    const isHost = Boolean(RoomTypingModel.roomSettings);
+    if (isHost && this.players.size > 1 && RoomTypingModel.roomSettings) {
       this.future(500).broadcastRoomSettings(RoomTypingModel.roomSettings);
     }
   }
 
-  // ✅ Keep existing applyRoomSettings method
-  applyRoomSettings(settings: any): void {
+  applyRoomSettings(settings: RoomTypingSettings): void {
     if (settings.theme) this.theme = settings.theme;
     if (settings.sentenceLength) this.sentenceLength = settings.sentenceLength;
     if (settings.timeLimit) this.timeLimit = settings.timeLimit;
     if (settings.maxPlayers) this.maxPlayers = settings.maxPlayers;
 
-    if (settings.hasOwnProperty('enableBetting')) {
+    if (Object.prototype.hasOwnProperty.call(settings, "enableBetting")) {
       this.enableBetting = settings.enableBetting;
     }
     if (settings.betAmount !== undefined) {
@@ -143,10 +116,8 @@ export class RoomTypingModel extends TypingModel {
     if (!settings.words || settings.words.length === 0) {
       this.shuffle(this.words);
     }
-
   }
 
-  // ✅ Getter methods remain the same
   get bettingEnabled(): boolean {
     return this.enableBetting || false;
   }
@@ -160,4 +131,4 @@ export class RoomTypingModel extends TypingModel {
   }
 }
 
-RoomTypingModel.register('RoomTypingModel');
+RoomTypingModel.register("RoomTypingModel");

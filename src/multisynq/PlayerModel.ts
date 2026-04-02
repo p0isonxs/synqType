@@ -170,7 +170,7 @@ export class PlayerModel extends ReactModel {
     
     if (now - this.lastUpdateTime < this.updateThrottleMs) {
       // Schedule delayed update instead of dropping it
-      this.future(this.updateThrottleMs).delayedPublish(eventType);
+      this.future(this.updateThrottleMs).delayedPublish();
       return;
     }
 
@@ -184,7 +184,7 @@ export class PlayerModel extends ReactModel {
   }
 
   // ✅ DELAYED PUBLISH: For throttled events
-  private delayedPublish(eventType: string): void {
+  private delayedPublish(): void {
     const now = this.now();
     
     // Only publish if enough time has passed

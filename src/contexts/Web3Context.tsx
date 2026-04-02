@@ -1,6 +1,7 @@
-import React, { createContext, useContext, ReactNode } from 'react'
+import { createContext, useContext } from 'react'
+import type { ReactNode } from 'react'
 import { useAccount, useConnect, useDisconnect } from 'wagmi'
-import { Connector } from 'wagmi'
+import type { Connector } from 'wagmi'
 import toast from 'react-hot-toast'
 
 interface Web3ContextType {

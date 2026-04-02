@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useOptimizedBettingContract } from '../hooks/useBettingContract';
 import toast from 'react-hot-toast';
 
@@ -32,9 +32,10 @@ export default function OptimizedBetConfirmationModal({
       setIsConfirming(true);
       await joinRoom(betAmount);
       onConfirmed();
-    } catch (error: any) {
+    } catch (error) {
       console.error('Bet confirmation error:', error);
-      toast.error(error.message || 'Failed to join betting pool');
+      const message = error instanceof Error ? error.message : 'Failed to join betting pool';
+      toast.error(message);
     } finally {
       setIsConfirming(false);
     }
@@ -68,6 +69,11 @@ export default function OptimizedBetConfirmationModal({
           <p className="text-gray-300 text-sm">
             Join the betting pool to compete for prizes. Winner gets the total pot automatically.
           </p>
+          {isOptimized && (
+            <p className="text-green-400 text-xs mt-2">
+              On-chain room start and payout are now synchronized.
+            </p>
+          )}
         </div>
 
         {/* Buttons */}

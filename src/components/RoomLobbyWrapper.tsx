@@ -1,37 +1,39 @@
-// ✅ COMPLETELY FIXED - File: src/components/RoomLobbyWrapper.tsx
 import { useParams, Navigate, useLocation } from "react-router";
 import { MultisynqRoot } from "@multisynq/react";
+import { useEffect } from "react";
 import RoomLobby from "./RoomLobby";
 import { RoomTypingModel } from "../multisynq/RoomTypingModel";
 import { useUserData } from "../contexts/UserContext";
-import { useEffect } from "react";
 
 export default function RoomLobbyWrapper() {
   const { code } = useParams();
   const location = useLocation();
   const { userData, updateUserData } = useUserData();
+  const canEnterRoom = Boolean(code && userData.initials && userData.avatarUrl);
 
-  // Check if required data exists
-  if (!code || !userData.initials || !userData.avatarUrl) {
-    return <Navigate to="/" />;
-  }
-
-  // ✅ FIXED: Move room settings update to useEffect
   useEffect(() => {
-    const isHost = location.state && Object.keys(location.state).length > 0;
-    
+    if (!canEnterRoom) return;
+
+    const isHost = Boolean(
+      location.state && Object.keys(location.state as object).length > 0
+    );
+
     if (isHost && location.state) {
-      // Host brings room settings from create flow
-      updateUserData({ roomSettings: location.state });
+      updateUserData({ roomSettings: location.state as Record<string, unknown> });
     }
-  }, [location.state]); // Only depend on location.state
+  }, [canEnterRoom, location.state, updateUserData]);
 
-  // ✅ Set room settings in model before initialization
   useEffect(() => {
+    if (!canEnterRoom) return;
+
     if (userData.roomSettings && Object.keys(userData.roomSettings).length > 0) {
       RoomTypingModel.setRoomSettings(userData.roomSettings);
     }
-  }, [userData.roomSettings]);
+  }, [canEnterRoom, userData.roomSettings]);
+
+  if (!canEnterRoom) {
+    return <Navigate to="/" />;
+  }
 
   return (
     <MultisynqRoot

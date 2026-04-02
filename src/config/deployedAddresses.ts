@@ -1,7 +1,7 @@
 // AUTO-GENERATED: Updated by TypingBetManager deployment
 // Last updated: 2025-07-26T07:18:21.545Z
 
-import { Address } from 'viem'
+import type { Address } from 'viem'
 
 // ✅ Contract addresses for different networks
 export const CONTRACTS = {

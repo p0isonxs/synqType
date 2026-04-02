@@ -9,8 +9,6 @@ import { AVATAR_CONFIG } from "../config/avatars";
 import { LoadingSpinner } from "./ui/LoadingSpinner";
 import { ErrorMessage } from "./ui/ErrorMessage";
 
-import { WalletConnect } from "./ConnectWalletButton";
-import { getNetworkInfo } from "../config/bettingContract";
 
 interface UsernameInputProps {
   onSubmit: (username: string, avatarUrl: string) => void;
@@ -26,7 +24,6 @@ interface FormState {
 export default function UsernameInput({ onSubmit }: UsernameInputProps) {
   // ✅ FIXED: Use UserContext for both sound and data management
   const { playClickSound, updateUserData } = useUserData();
-  const networkInfo = getNetworkInfo();
   const [formState, setFormState] = useState<FormState>({
     username: "",
     selectedAvatar: AVATAR_CONFIG.avatars[0],
@@ -89,7 +86,7 @@ export default function UsernameInput({ onSubmit }: UsernameInputProps) {
         });
 
         onSubmit(trimmedUsername, selectedAvatar);
-      } catch (err) {
+      } catch {
         updateFormState({
           error: {
             field: "general",

@@ -1,27 +1,26 @@
-// ✅ CONTEXT FIX - File: src/components/RoomGameWrapper.tsx
 import { useParams, Navigate } from "react-router";
 import { MultisynqRoot } from "@multisynq/react";
+import { useEffect } from "react";
 import { RoomTypingModel } from "../multisynq/RoomTypingModel";
 import TypingGame from "../TypingGame";
 import { useUserData } from "../contexts/UserContext";
-import { useEffect } from "react";
 
 export default function RoomGameWrapper() {
   const { code } = useParams();
-  
   const { userData } = useUserData();
+  const canEnterRoom = Boolean(code && userData.initials && userData.avatarUrl);
 
-  // Check if required data exists
-  if (!code || !userData.initials || !userData.avatarUrl) {
-    return <Navigate to="/" />;
-  }
-
-  // ✅ NEW: Set room settings in model before initialization
   useEffect(() => {
+    if (!canEnterRoom) return;
+
     if (userData.roomSettings && Object.keys(userData.roomSettings).length > 0) {
       RoomTypingModel.setRoomSettings(userData.roomSettings);
     }
-  }, [userData.roomSettings]);
+  }, [canEnterRoom, userData.roomSettings]);
+
+  if (!canEnterRoom) {
+    return <Navigate to="/" />;
+  }
 
   return (
     <MultisynqRoot
@@ -30,7 +29,7 @@ export default function RoomGameWrapper() {
         model: RoomTypingModel,
         appId: import.meta.env.VITE_MULTISYNQ_APP_ID,
         apiKey: import.meta.env.VITE_MULTISYNQ_API_KEY,
-        name: `typing-room-${code}`, // Same session as lobby
+        name: `typing-room-${code}`,
         password: `pw-${code}`,
       }}
     >

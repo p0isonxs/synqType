@@ -1,5 +1,6 @@
 // src/contexts/UserContext.tsx
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import type { ReactNode } from 'react';
 
 const DEFAULT_AVATAR = "/avatars/avatar1.png";
 
@@ -8,7 +9,7 @@ interface UserData {
   initials: string;
   avatarUrl: string;
   soundEnabled: boolean;
-  roomSettings: Record<string, any>;
+  roomSettings: Record<string, unknown>;
   walletAddress?: `0x${string}`;
   walletConnected?: boolean; 
 }

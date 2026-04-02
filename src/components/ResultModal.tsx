@@ -16,7 +16,10 @@ interface ResultsModalProps {
     player: Player;
     allPlayers: [string, Player][];
     viewId: string;
-    model: any;
+    model: {
+        words: string[];
+        theme?: string;
+    };
     roomCode?: string;
     currentIndex: number;
     isHost: boolean;
@@ -72,7 +75,7 @@ Challenge yourself: ${window.location.origin}`,
             hashtags: ["TypingRace", "WPM", "TypingSpeed"],
             url: "https://multisync-type-battle.vercel.app"
         };
-    }, [playerRank, allPlayers.length, player, model, accuracy, isWinner, currentIndex]);
+    }, [playerRank, allPlayers.length, player, model, accuracy, isWinner]);
 
     const shareToTwitter = useCallback(() => {
         const shareData = getShareText();

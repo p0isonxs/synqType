@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ImageWithFallbackProps } from "../../../type/global";
+import type { ImageWithFallbackProps } from "../../../type/global";
 
 export function ImageWithFallback({ src, alt, fallbackIcon, className = "" }: ImageWithFallbackProps) {
   const [hasError, setHasError] = useState(false);

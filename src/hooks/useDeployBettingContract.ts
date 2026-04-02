@@ -2,7 +2,7 @@
 // Following Bombandak pattern - simple and effective
 
 import { useState } from 'react'
-import { Address } from 'viem'
+import type { Address } from 'viem'
 import { BETTING_CONTRACT_ADDRESS } from '../config/bettingContract'
 
 export function useDeployBettingContract() {
@@ -25,7 +25,7 @@ export function useDeployBettingContract() {
       console.log('✅ Betting room ready at:', contractAddress)
       return contractAddress
       
-    } catch (error: any) {
+    } catch (error) {
       console.error('❌ Failed to setup betting room:', error)
       setIsDeploying(false)
       throw error

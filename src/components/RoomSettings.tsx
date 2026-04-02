@@ -7,7 +7,7 @@ import { useUserData } from "../contexts/UserContext";
 import { useWeb3 } from "../contexts/Web3Context";
 import { useOptimizedBettingContract } from '../hooks/useBettingContract';
 import toast from "react-hot-toast";
-import {
+import type {
   FormData,
   RoomMode,
   RoomSettings,
@@ -98,15 +98,16 @@ export default function OptimizedRoomSettings({ mode: propMode }: RoomSettingsPr
         case "theme":
           if (!value) return "Please select a theme";
           break;
-          case "betAmount":
-            const betValue = parseFloat(formData.betAmount);
-            if (!betValue || betValue < BETTING_VALIDATION_RULES.MIN_BET) {
-              return `Minimum bet is ${BETTING_VALIDATION_RULES.MIN_BET} ${networkInfo.currency}`;
-            }
-            if (betValue > BETTING_VALIDATION_RULES.MAX_BET) {
-              return `Maximum bet is ${BETTING_VALIDATION_RULES.MAX_BET} ${networkInfo.currency}`;
-            }
-            break;
+        case "betAmount": {
+          const betValue = parseFloat(formData.betAmount);
+          if (!betValue || betValue < BETTING_VALIDATION_RULES.MIN_BET) {
+            return `Minimum bet is ${BETTING_VALIDATION_RULES.MIN_BET} ${networkInfo.currency}`;
+          }
+          if (betValue > BETTING_VALIDATION_RULES.MAX_BET) {
+            return `Maximum bet is ${BETTING_VALIDATION_RULES.MAX_BET} ${networkInfo.currency}`;
+          }
+          break;
+        }
       }
       return null;
     },
@@ -260,7 +261,7 @@ export default function OptimizedRoomSettings({ mode: propMode }: RoomSettingsPr
 
 
       if (mode === "multi" && formData.enableBetting && isConnected) {
-        await createRoomAndBet(formData.betAmount, time);
+        await createRoomAndBet(formData.betAmount, time, players);
       
       }
 
@@ -275,7 +276,7 @@ export default function OptimizedRoomSettings({ mode: propMode }: RoomSettingsPr
         roomId: roomCode,
       };
 
-      updateUserData({ roomSettings: settings });
+      updateUserData({ roomSettings: settings as unknown as Record<string, unknown> });
 
       if (mode === "single") {
         navigate("/single", { state: settings });

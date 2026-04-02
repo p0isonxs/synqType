@@ -3,38 +3,12 @@ import { useState, useCallback } from "react";
 import { useSound } from "../contexts/UserContext";
 import RoyaleComingSoonModal from "./RoyaleComingSoonModal";
 import { MODE_CONFIG, NAVIGATION_DELAY } from "../config/mode";
-import { useWeb3 } from "../contexts/Web3Context";
 import { WalletConnect } from "./ConnectWalletButton";
 
 export default function ModeSelector() {
   const navigate = useNavigate();
   const { playClickSound } = useSound();
   const [showModal, setShowModal] = useState(false);
-  const { disconnect, isConnected, } = useWeb3();
-  const handleReset = () => {
-    localStorage.clear();
-    window.location.href = '/';
-  };
-
-  const handleLogout = async () => {
-    playClickSound();
-
-    try {
-      await disconnect();
-
-      localStorage.clear();
-
-      sessionStorage.clear();
-
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 300);
-
-    } catch (error) {
-      console.error('Logout error:', error);
-      handleReset();
-    }
-  };
   const handleModeNavigation = useCallback(
     (path: string) => {
       playClickSound();
